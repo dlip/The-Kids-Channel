@@ -2,10 +2,15 @@ package com.thekidschannel.ui
 
 import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,12 +37,19 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -70,6 +82,7 @@ fun PlayerScreen(
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var controlsVisible by remember { mutableStateOf(true) }
     var controlsInteraction by remember { mutableIntStateOf(0) }
+    var settingsHoldActive by remember { mutableStateOf(false) }
 
     fun showControls() {
         controlsVisible = true
@@ -153,10 +166,12 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(channelUri, controlsInteraction) {
+    LaunchedEffect(channelUri, controlsInteraction, settingsHoldActive) {
         controlsVisible = true
-        delay(5_000)
-        controlsVisible = false
+        if (!settingsHoldActive) {
+            delay(5_000)
+            controlsVisible = false
+        }
     }
 
     DisposableEffect(player) {
@@ -223,22 +238,17 @@ fun PlayerScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
 
-                FilledIconButton(
-                    onClick = {
-                        showControls()
-                        onSettings()
+                SettingsHoldButton(
+                    onHoldingChanged = { isHolding ->
+                        settingsHoldActive = isHolding
+                        if (isHolding) showControls()
                     },
+                    onHoldComplete = onSettings,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(16.dp)
                         .size(52.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color.Black.copy(alpha = 0.55f),
-                        contentColor = Color.White,
-                    ),
-                ) {
-                    Icon(Icons.Default.Settings, contentDescription = "Channel settings")
-                }
+                )
 
                 Column(
                     modifier = Modifier
@@ -266,6 +276,76 @@ fun PlayerScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsHoldButton(
+    onHoldingChanged: (Boolean) -> Unit,
+    onHoldComplete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val progress = remember { Animatable(0f) }
+    val currentOnHoldingChanged by rememberUpdatedState(onHoldingChanged)
+    val currentOnHoldComplete by rememberUpdatedState(onHoldComplete)
+    var isHolding by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isHolding) {
+        progress.snapTo(0f)
+        if (isHolding) {
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 5_000,
+                    easing = LinearEasing,
+                ),
+            )
+            currentOnHoldComplete()
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.55f))
+            .semantics {
+                contentDescription = "Hold for settings"
+                role = Role.Button
+            }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial,
+                    )
+                    down.consume()
+                    isHolding = true
+                    currentOnHoldingChanged(true)
+                    try {
+                        do {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                        } while (event.changes.any { it.pressed })
+                    } finally {
+                        isHolding = false
+                        currentOnHoldingChanged(false)
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawArc(
+                color = Color.Red.copy(alpha = 0.85f),
+                startAngle = -90f,
+                sweepAngle = progress.value * 360f,
+                useCenter = true,
+            )
+        }
+        Icon(
+            Icons.Default.Settings,
+            contentDescription = null,
+            tint = Color.White,
+        )
     }
 }
 
