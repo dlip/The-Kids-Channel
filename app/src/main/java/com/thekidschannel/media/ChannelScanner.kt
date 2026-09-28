@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.thekidschannel.data.RootEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -12,11 +13,42 @@ data class VideoItem(
     val name: String,
 )
 
+data class ChannelFolder(
+    val rootUri: String,
+    val uri: String,
+    val name: String,
+)
+
 class ChannelScanner(private val context: Context) {
-    suspend fun scan(channelUri: String): List<VideoItem> = withContext(Dispatchers.IO) {
-        val root = DocumentFile.fromTreeUri(context, channelUri.toUri())
+    suspend fun discoverChannels(roots: List<RootEntity>): List<ChannelFolder> =
+        withContext(Dispatchers.IO) {
+            roots.flatMap { root ->
+                val rootDirectory = DocumentFile.fromTreeUri(context, root.uri.toUri())
+                    ?: return@flatMap emptyList()
+                runCatching { rootDirectory.listFiles().toList() }
+                    .getOrDefault(emptyList())
+                    .filter(DocumentFile::isDirectory)
+                    .sortedWith { left, right ->
+                        NaturalOrder.compare(left.name.orEmpty(), right.name.orEmpty())
+                    }
+                    .map { directory ->
+                        ChannelFolder(
+                            rootUri = root.uri,
+                            uri = directory.uri.toString(),
+                            name = directory.name ?: "Channel",
+                        )
+                    }
+            }
+        }
+
+    suspend fun scan(channel: ChannelFolder): List<VideoItem> = withContext(Dispatchers.IO) {
+        val root = DocumentFile.fromTreeUri(context, channel.rootUri.toUri())
             ?: return@withContext emptyList()
-        buildList { collectVideos(root, mutableSetOf(), this) }
+        val channelDirectory = runCatching { root.listFiles().toList() }
+            .getOrDefault(emptyList())
+            .firstOrNull { it.isDirectory && it.uri.toString() == channel.uri }
+            ?: return@withContext emptyList()
+        buildList { collectVideos(channelDirectory, mutableSetOf(), this) }
     }
 
     private fun collectVideos(

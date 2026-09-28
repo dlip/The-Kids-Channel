@@ -8,11 +8,12 @@ import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.flow.Flow
 
-class ChannelRepository(
+class RootRepository(
     private val context: Context,
-    private val channelDao: ChannelDao,
+    private val rootDao: RootDao,
+    private val progressDao: ChannelProgressDao,
 ) {
-    val channels: Flow<List<ChannelEntity>> = channelDao.observeAll()
+    val roots: Flow<List<RootEntity>> = rootDao.observeAll()
 
     private val preferences =
         context.getSharedPreferences("playback", Context.MODE_PRIVATE)
@@ -23,22 +24,22 @@ class ChannelRepository(
             preferences.edit { putString(SELECTED_CHANNEL_KEY, value) }
         }
 
-    suspend fun addChannel(uri: Uri) {
+    suspend fun addRoot(uri: Uri) {
         val name = DocumentFile.fromTreeUri(context, uri)?.name
             ?.takeIf(String::isNotBlank)
-            ?: "Channel"
-        channelDao.insert(
-            ChannelEntity(
+            ?: "Root folder"
+        rootDao.insert(
+            RootEntity(
                 uri = uri.toString(),
                 name = name,
-                sortOrder = channelDao.nextSortOrder(),
+                sortOrder = rootDao.nextSortOrder(),
             ),
         )
     }
 
-    suspend fun removeChannel(uri: String) {
-        channelDao.delete(uri)
-        if (selectedChannelUri == uri) selectedChannelUri = null
+    suspend fun removeRoot(uri: String) {
+        progressDao.deleteForRoot(uri)
+        rootDao.delete(uri)
         runCatching {
             context.contentResolver.releasePersistableUriPermission(
                 uri.toUri(),
@@ -47,17 +48,24 @@ class ChannelRepository(
         }
     }
 
+    suspend fun getProgress(channelUri: String): ChannelProgressEntity? =
+        progressDao.get(channelUri)
+
     suspend fun saveProgress(
+        rootUri: String,
         channelUri: String,
         videoUri: String,
         videoIndex: Int,
         positionMs: Long,
     ) {
-        channelDao.updateProgress(
-            channelUri = channelUri,
-            videoUri = videoUri,
-            videoIndex = videoIndex,
-            positionMs = positionMs.coerceAtLeast(0),
+        progressDao.save(
+            ChannelProgressEntity(
+                channelUri = channelUri,
+                rootUri = rootUri,
+                currentVideoUri = videoUri,
+                currentVideoIndex = videoIndex,
+                positionMs = positionMs.coerceAtLeast(0),
+            ),
         )
     }
 

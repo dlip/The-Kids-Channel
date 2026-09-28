@@ -4,21 +4,24 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.thekidschannel.data.ChannelEntity
-import com.thekidschannel.data.ChannelRepository
+import com.thekidschannel.data.RootEntity
+import com.thekidschannel.data.RootRepository
+import com.thekidschannel.media.ChannelFolder
 import com.thekidschannel.media.ChannelScanner
 import com.thekidschannel.media.VideoItem
+import com.thekidschannel.media.relativeChannelIndex
 import com.thekidschannel.media.resolveResumePoint
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class MainUiState(
-    val channels: List<ChannelEntity> = emptyList(),
-    val selectedChannel: ChannelEntity? = null,
+    val roots: List<RootEntity> = emptyList(),
+    val channels: List<ChannelFolder> = emptyList(),
+    val selectedChannel: ChannelFolder? = null,
     val videos: List<VideoItem> = emptyList(),
     val startVideoIndex: Int = 0,
     val startPositionMs: Long = 0,
@@ -26,66 +29,67 @@ data class MainUiState(
     val message: String? = null,
 )
 
-private data class ChannelSelection(
-    val channelUris: List<String>,
-    val selectedChannel: ChannelEntity?,
-)
-
 class MainViewModel(
-    private val repository: ChannelRepository,
+    private val repository: RootRepository,
     private val scanner: ChannelScanner,
 ) : ViewModel() {
-    private val selectedChannelUri = MutableStateFlow(repository.selectedChannelUri)
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState
+    private var channelLoadJob: Job? = null
 
     init {
         viewModelScope.launch {
-            repository.channels.collect { channels ->
-                _uiState.update { it.copy(channels = channels) }
-            }
-        }
-        viewModelScope.launch {
-            combine(repository.channels, selectedChannelUri) { channels, selectedUri ->
-                val selected = channels.firstOrNull { it.uri == selectedUri }
-                    ?: channels.firstOrNull()
-                ChannelSelection(channels.map(ChannelEntity::uri), selected)
-            }
-                .distinctUntilChanged { old, new ->
-                    old.channelUris == new.channelUris &&
-                        old.selectedChannel?.uri == new.selectedChannel?.uri
+            repository.roots.collectLatest { roots ->
+                _uiState.update {
+                    it.copy(
+                        roots = roots,
+                        isLoading = roots.isNotEmpty(),
+                        message = null,
+                    )
                 }
-                .collect { selection -> loadChannel(selection.selectedChannel) }
+                val channels = scanner.discoverChannels(roots)
+                _uiState.update { it.copy(channels = channels) }
+                val selectedChannel = channels.firstOrNull {
+                    it.uri == repository.selectedChannelUri
+                } ?: channels.firstOrNull()
+                selectChannel(selectedChannel)
+            }
         }
     }
 
-    fun addChannel(uri: Uri) {
+    fun addRoot(uri: Uri) {
         viewModelScope.launch {
-            repository.addChannel(uri)
+            repository.addRoot(uri)
         }
     }
 
-    fun removeChannel(uri: String) {
+    fun removeRoot(uri: String) {
         viewModelScope.launch {
-            repository.removeChannel(uri)
+            repository.removeRoot(uri)
         }
     }
 
     fun selectRelativeChannel(offset: Int) {
         val channels = _uiState.value.channels
-        if (channels.isEmpty()) return
-        val currentIndex = channels.indexOfFirst {
-            it.uri == _uiState.value.selectedChannel?.uri
-        }.coerceAtLeast(0)
-        val nextIndex = Math.floorMod(currentIndex + offset, channels.size)
+        val nextIndex = relativeChannelIndex(
+            channelUris = channels.map(ChannelFolder::uri),
+            currentChannelUri = _uiState.value.selectedChannel?.uri,
+            offset = offset,
+        ) ?: return
         selectChannel(channels[nextIndex].uri)
     }
 
     fun saveProgress(videoUri: String?, videoIndex: Int, positionMs: Long) {
-        val channelUri = _uiState.value.selectedChannel?.uri ?: return
+        val channel = _uiState.value.selectedChannel ?: return
         if (videoUri == null || videoIndex < 0) return
         viewModelScope.launch {
-            repository.saveProgress(channelUri, videoUri, videoIndex, positionMs)
+            repository.saveProgress(
+                rootUri = channel.rootUri,
+                channelUri = channel.uri,
+                videoUri = videoUri,
+                videoIndex = videoIndex,
+                positionMs = positionMs,
+            )
         }
     }
 
@@ -94,18 +98,23 @@ class MainViewModel(
     }
 
     private fun selectChannel(uri: String) {
-        repository.selectedChannelUri = uri
-        selectedChannelUri.value = uri
+        val channel = _uiState.value.channels.firstOrNull { it.uri == uri } ?: return
+        selectChannel(channel)
     }
 
-    private suspend fun loadChannel(channel: ChannelEntity?) {
+    private fun selectChannel(channel: ChannelFolder?) {
+        channelLoadJob?.cancel()
         if (channel == null) {
             _uiState.update {
                 it.copy(
                     selectedChannel = null,
                     videos = emptyList(),
                     isLoading = false,
-                    message = null,
+                    message = if (it.roots.isEmpty()) {
+                        null
+                    } else {
+                        "No channel folders found inside the configured roots"
+                    },
                 )
             }
             return
@@ -120,25 +129,36 @@ class MainViewModel(
                 message = null,
             )
         }
-
-        val videos = scanner.scan(channel.uri)
-        val resumePoint = resolveResumePoint(
-            videoUris = videos.map { it.uri.toString() },
-            savedVideoUri = channel.currentVideoUri,
-            savedVideoIndex = channel.currentVideoIndex,
-            savedPositionMs = channel.positionMs,
-        )
-
-        _uiState.update {
-            it.copy(
-                selectedChannel = channel,
-                videos = videos,
-                startVideoIndex = resumePoint.videoIndex,
-                startPositionMs = resumePoint.positionMs,
-                isLoading = false,
-                message = if (videos.isEmpty()) "No playable videos in this channel" else null,
+        channelLoadJob = viewModelScope.launch {
+            val progress = repository.getProgress(channel.uri)
+            val videos = scanner.scan(channel)
+            val resumePoint = resolveResumePoint(
+                videoUris = videos.map { it.uri.toString() },
+                savedVideoUri = progress?.currentVideoUri,
+                savedVideoIndex = progress?.currentVideoIndex ?: 0,
+                savedPositionMs = progress?.positionMs ?: 0,
             )
+
+            _uiState.update {
+                it.copy(
+                    selectedChannel = channel,
+                    videos = videos,
+                    startVideoIndex = resumePoint.videoIndex,
+                    startPositionMs = resumePoint.positionMs,
+                    isLoading = false,
+                    message = if (videos.isEmpty()) {
+                        "No playable videos in this channel"
+                    } else {
+                        null
+                    },
+                )
+            }
         }
+    }
+
+    override fun onCleared() {
+        channelLoadJob?.cancel()
+        super.onCleared()
     }
 }
 
@@ -149,7 +169,7 @@ class MainViewModelFactory(
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(MainViewModel::class.java))
         return MainViewModel(
-            repository = application.channelRepository,
+            repository = application.rootRepository,
             scanner = application.channelScanner,
         ) as T
     }

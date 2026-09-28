@@ -51,7 +51,7 @@ fun KidsChannelApp(
     ) { uri ->
         if (uri != null) {
             if (takeFolderAccess(uri)) {
-                viewModel.addChannel(uri)
+                viewModel.addRoot(uri)
                 showSettings = false
             } else {
                 viewModel.showMessage("Folder access could not be saved")
@@ -61,12 +61,12 @@ fun KidsChannelApp(
 
     when {
         state.isLoading && state.selectedChannel == null -> LoadingScreen()
-        showSettings || state.channels.isEmpty() -> ChannelSettings(
+        showSettings || state.roots.isEmpty() -> ChannelSettings(
             state = state,
-            canClose = state.channels.isNotEmpty(),
+            canClose = state.roots.isNotEmpty(),
             onClose = { showSettings = false },
             onAdd = { folderPicker.launch(null) },
-            onRemove = viewModel::removeChannel,
+            onRemove = viewModel::removeRoot,
         )
         else -> PlayerScreen(
             state = state,
@@ -98,7 +98,7 @@ private fun ChannelSettings(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Channels") },
+                title = { Text("Root folders") },
                 navigationIcon = {
                     if (canClose) {
                         IconButton(onClick = onClose) {
@@ -118,26 +118,29 @@ private fun ChannelSettings(
                 .padding(padding)
                 .padding(horizontal = 20.dp),
         ) {
-            Text("Each selected folder becomes one looping channel. Nested folders are included.")
+            Text(
+                "Each folder directly inside a selected root becomes a channel. " +
+                    "Folders nested inside a channel are included in its playlist.",
+            )
             Spacer(Modifier.height(16.dp))
             Button(onClick = onAdd) {
                 Icon(Icons.Default.Add, contentDescription = null)
-                Text("Add channel folder", modifier = Modifier.padding(start = 8.dp))
+                Text("Add root folder", modifier = Modifier.padding(start = 8.dp))
             }
             state.message?.let {
                 Text(it, modifier = Modifier.padding(top = 12.dp))
             }
             Spacer(Modifier.height(12.dp))
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(state.channels, key = { it.uri }) { channel ->
+                items(state.roots, key = { it.uri }) { root ->
                     ListItem(
-                        headlineContent = { Text(channel.name) },
-                        supportingContent = { Text(channel.uri) },
+                        headlineContent = { Text(root.name) },
+                        supportingContent = { Text(root.uri) },
                         trailingContent = {
-                            IconButton(onClick = { onRemove(channel.uri) }) {
+                            IconButton(onClick = { onRemove(root.uri) }) {
                                 Icon(
                                     Icons.Default.Delete,
-                                    contentDescription = "Remove ${channel.name}",
+                                    contentDescription = "Remove ${root.name}",
                                 )
                             }
                         },
