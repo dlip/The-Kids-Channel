@@ -1,7 +1,12 @@
 package com.thekidschannel.ui
 
 import android.view.ViewGroup
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,12 +29,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -61,6 +68,13 @@ fun PlayerScreen(
     val player = remember { ExoPlayer.Builder(context).build() }
     val channelUri = state.selectedChannel?.uri
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var controlsInteraction by remember { mutableIntStateOf(0) }
+
+    fun showControls() {
+        controlsVisible = true
+        controlsInteraction++
+    }
 
     fun saveProgress() {
         onSaveProgress(
@@ -139,6 +153,12 @@ fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(channelUri, controlsInteraction) {
+        controlsVisible = true
+        delay(5_000)
+        controlsVisible = false
+    }
+
     DisposableEffect(player) {
         onDispose {
             saveProgress()
@@ -168,6 +188,14 @@ fun PlayerScreen(
             update = { it.player = player },
         )
 
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTapGestures { showControls() }
+                },
+        )
+
         if (state.isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
         } else if (state.message != null) {
@@ -178,52 +206,65 @@ fun PlayerScreen(
             )
         }
 
-        Text(
-            text = state.selectedChannel?.name.orEmpty(),
-            color = Color.White,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(20.dp)
-                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
-
-        FilledIconButton(
-            onClick = onSettings,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(16.dp)
-                .size(52.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = Color.Black.copy(alpha = 0.55f),
-                contentColor = Color.White,
-            ),
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(tween(durationMillis = 200)),
+            exit = fadeOut(tween(durationMillis = 500)),
         ) {
-            Icon(Icons.Default.Settings, contentDescription = "Channel settings")
-        }
+            Box(modifier = Modifier.fillMaxSize()) {
+                Text(
+                    text = state.selectedChannel?.name.orEmpty(),
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(20.dp)
+                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                )
 
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .fillMaxHeight()
-                .padding(end = 16.dp, top = 88.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            ChannelButton(
-                icon = { Icon(Icons.Default.KeyboardArrowUp, "Previous channel") },
-                onClick = {
-                    saveProgress()
-                    onPreviousChannel()
-                },
-            )
-            ChannelButton(
-                icon = { Icon(Icons.Default.KeyboardArrowDown, "Next channel") },
-                onClick = {
-                    saveProgress()
-                    onNextChannel()
-                },
-            )
+                FilledIconButton(
+                    onClick = {
+                        showControls()
+                        onSettings()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .size(52.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Color.Black.copy(alpha = 0.55f),
+                        contentColor = Color.White,
+                    ),
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = "Channel settings")
+                }
+
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .padding(end = 16.dp, top = 88.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.SpaceEvenly,
+                ) {
+                    ChannelButton(
+                        icon = { Icon(Icons.Default.KeyboardArrowUp, "Previous channel") },
+                        onClick = {
+                            showControls()
+                            saveProgress()
+                            onPreviousChannel()
+                        },
+                    )
+                    ChannelButton(
+                        icon = { Icon(Icons.Default.KeyboardArrowDown, "Next channel") },
+                        onClick = {
+                            showControls()
+                            saveProgress()
+                            onNextChannel()
+                        },
+                    )
+                }
+            }
         }
     }
 }
