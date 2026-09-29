@@ -23,6 +23,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
@@ -83,6 +85,7 @@ fun PlayerScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var controlsInteraction by remember { mutableIntStateOf(0) }
     var settingsHoldActive by remember { mutableStateOf(false) }
+    var isPaused by remember { mutableStateOf(false) }
 
     fun showControls() {
         controlsVisible = true
@@ -119,6 +122,10 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 saveProgress()
+            }
+
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                isPaused = !playWhenReady
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -249,6 +256,26 @@ fun PlayerScreen(
                         .padding(16.dp)
                         .size(52.dp),
                 )
+
+                FilledIconButton(
+                    onClick = {
+                        showControls()
+                        if (player.playWhenReady) player.pause() else player.play()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(end = 16.dp, top = 80.dp)
+                        .size(52.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Color.Black.copy(alpha = 0.55f),
+                        contentColor = Color.White,
+                    ),
+                ) {
+                    Icon(
+                        imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        contentDescription = if (isPaused) "Resume video" else "Pause video",
+                    )
+                }
 
                 Column(
                     modifier = Modifier
