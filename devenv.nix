@@ -24,7 +24,7 @@
   packages = [ pkgs.android-tools ];
 
   scripts = {
-    build-app.exec = "./gradlew assembleDebug";
+    build-app.exec = "./gradlew assembleStandardDebug assembleVlcDebug";
     test-app.exec = "./gradlew test";
   };
 }

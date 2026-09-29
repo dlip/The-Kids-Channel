@@ -16,11 +16,13 @@ automatically.
 ## Build and test
 
 ```sh
-./gradlew lint test assembleDebug
+./gradlew lint test assembleStandardDebug assembleVlcDebug
 ```
 
-The debug APK is written to
-`app/build/outputs/apk/debug/app-debug.apk`.
+The debug APKs are written to:
+
+- `app/build/outputs/apk/standard/debug/app-standard-debug.apk`
+- `app/build/outputs/apk/vlc/debug/app-vlc-debug.apk`
 
 ## Deploy to a connected device
 
@@ -34,16 +36,16 @@ adb devices
 Install the debug build and launch the app:
 
 ```sh
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/standard/debug/app-standard-debug.apk
 adb shell monkey -p com.thekidschannel -c android.intent.category.LAUNCHER 1
 ```
 
 ## Signed releases
 
-The `Signed Android release` GitHub Actions workflow builds a signed APK. A
-manual run stores the APK as a workflow artifact. Pushing a tag beginning with
-`v`, such as `v1.1.0`, also creates a GitHub Release and attaches the APK and
-its SHA-256 checksum.
+The `Signed Android release` GitHub Actions workflow builds signed Standard and
+VLC APKs. A manual run stores both APKs as a workflow artifact. Pushing a tag
+beginning with `v`, such as `v1.1.0`, also creates a GitHub Release and attaches
+both APKs and their SHA-256 checksums.
 
 Create the signing key once:
 
@@ -84,3 +86,7 @@ git push origin v1.1.0
 For an unpublished build, open **Actions → Signed Android release → Run
 workflow**, enter a version name, and download the resulting artifact when the
 run completes.
+
+The VLC flavor's dependency notice is in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and is also packaged inside
+the VLC APK.

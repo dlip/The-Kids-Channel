@@ -34,11 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.util.UnstableApi
 import com.thekidschannel.MainUiState
 import com.thekidschannel.MainViewModel
 
-@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun KidsChannelApp(
     viewModel: MainViewModel,

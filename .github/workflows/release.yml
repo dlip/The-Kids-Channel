@@ -64,23 +64,25 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
           echo "ANDROID_SIGNING_STORE_FILE=$keystore_path" >> "$GITHUB_ENV"
 
-      - name: Build and test signed release
+      - name: Build and test signed releases
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew lint test assembleRelease --no-daemon
+        run: ./gradlew lint test assembleStandardRelease assembleVlcRelease --no-daemon
 
-      - name: Verify and package APK
+      - name: Verify and package APKs
         shell: bash
         run: |
-          apk="app/build/outputs/apk/release/app-release.apk"
           apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          "$apksigner" verify --verbose "$apk"
           mkdir -p dist
-          output="dist/the-kids-channel-${ANDROID_VERSION_NAME}.apk"
-          cp "$apk" "$output"
-          sha256sum "$output" > "$output.sha256"
+          for flavor in standard vlc; do
+            apk="app/build/outputs/apk/$flavor/release/app-$flavor-release.apk"
+            output="dist/the-kids-channel-$flavor-${ANDROID_VERSION_NAME}.apk"
+            "$apksigner" verify --verbose "$apk"
+            cp "$apk" "$output"
+            sha256sum "$output" > "$output.sha256"
+          done
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -95,12 +97,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          apk="dist/the-kids-channel-${ANDROID_VERSION_NAME}.apk"
-          checksum="$apk.sha256"
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$apk" "$checksum" --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "$apk" "$checksum" \
+            gh release create "$GITHUB_REF_NAME" dist/* \
               --generate-notes \
               --title "The Kids Channel $ANDROID_VERSION_NAME"
           fi

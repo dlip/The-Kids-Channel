@@ -35,6 +35,19 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "player"
+    productFlavors {
+        create("standard") {
+            dimension = "player"
+        }
+        create("vlc") {
+            dimension = "player"
+            ndk {
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            }
+        }
+    }
+
     signingConfigs {
         if (hasReleaseSigning) {
             create("release") {
@@ -94,8 +107,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
 
-    implementation("androidx.media3:media3-exoplayer:1.6.0")
-    implementation("androidx.media3:media3-ui:1.6.0")
+    "standardImplementation"("androidx.media3:media3-exoplayer:1.6.0")
+    "standardImplementation"("androidx.media3:media3-ui:1.6.0")
+    "vlcImplementation"("org.videolan.android:libvlc-all:3.6.5")
     implementation("androidx.documentfile:documentfile:1.0.1")
 
     implementation("androidx.room:room-runtime:2.7.0")

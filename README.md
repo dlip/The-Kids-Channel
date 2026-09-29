@@ -15,10 +15,16 @@ play in order, loop continuously, and resume where they left off.
 The Kids Channel requires Android 8.0 or newer.
 
 1. Open the [latest release](https://github.com/dlip/the-kids-channel/releases/latest).
-2. Under **Assets**, download the file ending in `.apk`.
+2. Under **Assets**, download the Standard APK. It is the smaller download and
+   is recommended for most devices.
 3. Open the downloaded APK on your phone or tablet.
 4. If Android blocks the installation, allow your browser or file manager to
    install unknown apps, then try again.
+
+If videos have sound but show a black screen, or a video format will not play,
+install the larger APK with `vlc` in its filename. The VLC build supports more
+devices and video formats. It can be installed over the Standard build without
+losing folders or saved playback positions.
 
 Future versions can be installed over the current app without removing its
 folders or saved playback positions.

@@ -1,8 +1,5 @@
 package com.thekidschannel.ui
 
-import android.os.Build
-import android.view.LayoutInflater
-import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -35,7 +32,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -49,138 +45,33 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import com.thekidschannel.MainUiState
-import com.thekidschannel.R
 import kotlinx.coroutines.delay
 
-@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
-fun PlayerScreen(
+internal fun PlayerScreenLayout(
     state: MainUiState,
+    isPaused: Boolean,
+    onTogglePlayback: () -> Unit,
+    onSaveProgress: () -> Unit,
     onPreviousChannel: () -> Unit,
     onNextChannel: () -> Unit,
-    onSaveProgress: (String?, Int, Long) -> Unit,
     onSettings: () -> Unit,
-    onPlaybackMessage: (String?) -> Unit,
+    videoSurface: @Composable () -> Unit,
 ) {
-    val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember {
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setEnableDecoderFallback(true)
-        ExoPlayer.Builder(context, renderersFactory).build()
-    }
-    val requiresTextureViewWorkaround = Build.VERSION.SDK_INT == Build.VERSION_CODES.P &&
-        Build.MANUFACTURER.equals("HUAWEI", ignoreCase = true)
     val channelUri = state.selectedChannel?.uri
-    var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var controlsVisible by remember { mutableStateOf(true) }
     var controlsInteraction by remember { mutableIntStateOf(0) }
     var settingsHoldActive by remember { mutableStateOf(false) }
-    var isPaused by remember { mutableStateOf(false) }
 
     fun showControls() {
         controlsVisible = true
         controlsInteraction++
-    }
-
-    fun saveProgress() {
-        onSaveProgress(
-            player.currentMediaItem?.mediaId,
-            player.currentMediaItemIndex,
-            player.currentPosition,
-        )
-    }
-
-    LaunchedEffect(channelUri, state.videos) {
-        if (state.videos.isEmpty()) {
-            player.clearMediaItems()
-            return@LaunchedEffect
-        }
-        val items = state.videos.map { video ->
-            MediaItem.Builder()
-                .setUri(video.uri)
-                .setMediaId(video.uri.toString())
-                .build()
-        }
-        player.setMediaItems(items, state.startVideoIndex, state.startPositionMs)
-        player.repeatMode = Player.REPEAT_MODE_ALL
-        player.prepare()
-        player.playWhenReady = true
-        onPlaybackMessage(null)
-    }
-
-    DisposableEffect(player, channelUri) {
-        val listener = object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                saveProgress()
-            }
-
-            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                isPaused = !playWhenReady
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                val failedIndex = player.currentMediaItemIndex
-                failedItems = failedItems + failedIndex
-                val nextIndex = (1..player.mediaItemCount)
-                    .map { (failedIndex + it) % player.mediaItemCount.coerceAtLeast(1) }
-                    .firstOrNull { it !in failedItems }
-                if (nextIndex == null || player.mediaItemCount == 0) {
-                    onPlaybackMessage("None of this channel's videos could be played")
-                    return
-                }
-                player.seekToDefaultPosition(nextIndex)
-                player.prepare()
-                player.playWhenReady = true
-            }
-        }
-        player.addListener(listener)
-        onDispose {
-            player.removeListener(listener)
-        }
-    }
-
-    DisposableEffect(lifecycleOwner, channelUri) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> if (player.mediaItemCount > 0) player.play()
-                Lifecycle.Event.ON_STOP -> {
-                    saveProgress()
-                    player.pause()
-                }
-                else -> Unit
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    LaunchedEffect(player, channelUri) {
-        while (true) {
-            delay(5_000)
-            saveProgress()
-        }
     }
 
     LaunchedEffect(channelUri, controlsInteraction, settingsHoldActive) {
@@ -191,43 +82,12 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(player) {
-        onDispose {
-            saveProgress()
-            player.release()
-        }
-    }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { viewContext ->
-                val playerView = if (requiresTextureViewWorkaround) {
-                    LayoutInflater.from(viewContext).inflate(
-                        R.layout.player_view_texture,
-                        null,
-                        false,
-                    ) as PlayerView
-                } else {
-                    PlayerView(viewContext)
-                }
-                playerView.apply {
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                    )
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    keepScreenOn = true
-                    this.player = player
-                }
-            },
-            update = { it.player = player },
-        )
+        videoSurface()
 
         Box(
             modifier = Modifier
@@ -268,7 +128,7 @@ fun PlayerScreen(
                     isPaused = isPaused,
                     onClick = {
                         showControls()
-                        if (player.playWhenReady) player.pause() else player.play()
+                        onTogglePlayback()
                     },
                     onHoldingChanged = { isHolding ->
                         settingsHoldActive = isHolding
@@ -298,7 +158,7 @@ fun PlayerScreen(
                         },
                         onClick = {
                             showControls()
-                            saveProgress()
+                            onSaveProgress()
                             onPreviousChannel()
                         },
                     )
@@ -312,7 +172,7 @@ fun PlayerScreen(
                         },
                         onClick = {
                             showControls()
-                            saveProgress()
+                            onSaveProgress()
                             onNextChannel()
                         },
                     )

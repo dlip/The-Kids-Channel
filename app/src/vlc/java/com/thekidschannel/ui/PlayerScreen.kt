@@ -1,0 +1,198 @@
+package com.thekidschannel.ui
+
+import android.content.res.AssetFileDescriptor
+import android.os.Handler
+import android.os.Looper
+import android.view.ViewGroup
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.thekidschannel.MainUiState
+import com.thekidschannel.media.VideoItem
+import kotlinx.coroutines.delay
+import org.videolan.libvlc.LibVLC
+import org.videolan.libvlc.Media
+import org.videolan.libvlc.MediaPlayer
+import org.videolan.libvlc.util.VLCVideoLayout
+
+@Composable
+fun PlayerScreen(
+    state: MainUiState,
+    onPreviousChannel: () -> Unit,
+    onNextChannel: () -> Unit,
+    onSaveProgress: (String?, Int, Long) -> Unit,
+    onSettings: () -> Unit,
+    onPlaybackMessage: (String?) -> Unit,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val libVlc = remember { LibVLC(context) }
+    val player = remember { MediaPlayer(libVlc) }
+    var openFileDescriptor by remember { mutableStateOf<AssetFileDescriptor?>(null) }
+    val channelUri = state.selectedChannel?.uri
+    var playlist by remember { mutableStateOf(emptyList<VideoItem>()) }
+    var currentIndex by remember { mutableIntStateOf(0) }
+    var pendingStartPositionMs by remember { mutableLongStateOf(0) }
+    var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
+    var isPaused by remember { mutableStateOf(false) }
+
+    fun saveProgress() {
+        onSaveProgress(
+            playlist.getOrNull(currentIndex)?.uri?.toString(),
+            currentIndex,
+            player.time.coerceAtLeast(0),
+        )
+    }
+
+    fun playVideo(index: Int, positionMs: Long = 0) {
+        val video = playlist.getOrNull(index) ?: return
+        val fileDescriptor = runCatching {
+            context.contentResolver.openAssetFileDescriptor(video.uri, "r")
+        }.getOrNull()
+        if (fileDescriptor == null) {
+            onPlaybackMessage("This video file could not be opened")
+            return
+        }
+        currentIndex = index
+        pendingStartPositionMs = positionMs.coerceAtLeast(0)
+        openFileDescriptor?.close()
+        openFileDescriptor = fileDescriptor
+        val media = Media(libVlc, fileDescriptor).apply {
+            setHWDecoderEnabled(true, false)
+        }
+        player.media = media
+        media.release()
+        player.play()
+        isPaused = false
+    }
+
+    fun playNextAvailable(failedIndex: Int) {
+        failedItems = failedItems + failedIndex
+        val nextIndex = (1..playlist.size)
+            .map { (failedIndex + it) % playlist.size.coerceAtLeast(1) }
+            .firstOrNull { it !in failedItems }
+        if (nextIndex == null || playlist.isEmpty()) {
+            onPlaybackMessage("None of this channel's videos could be played")
+        } else {
+            playVideo(nextIndex)
+        }
+    }
+
+    LaunchedEffect(channelUri, state.videos) {
+        playlist = state.videos
+        failedItems = emptySet()
+        if (playlist.isEmpty()) {
+            player.stop()
+            openFileDescriptor?.close()
+            openFileDescriptor = null
+            return@LaunchedEffect
+        }
+        playVideo(
+            index = state.startVideoIndex.coerceIn(playlist.indices),
+            positionMs = state.startPositionMs,
+        )
+        onPlaybackMessage(null)
+    }
+
+    DisposableEffect(player, channelUri) {
+        player.setEventListener { event ->
+            mainHandler.post {
+                when (event.type) {
+                    MediaPlayer.Event.Playing -> {
+                        isPaused = false
+                        if (pendingStartPositionMs > 0) {
+                            val positionMs = pendingStartPositionMs
+                            pendingStartPositionMs = 0
+                            player.time = positionMs
+                        }
+                    }
+                    MediaPlayer.Event.Paused -> isPaused = true
+                    MediaPlayer.Event.EndReached -> {
+                        val nextIndex = (currentIndex + 1) % playlist.size.coerceAtLeast(1)
+                        playVideo(nextIndex)
+                    }
+                    MediaPlayer.Event.EncounteredError -> playNextAvailable(currentIndex)
+                }
+            }
+        }
+        onDispose {
+            player.setEventListener(null)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, channelUri) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> if (playlist.isNotEmpty()) player.play()
+                Lifecycle.Event.ON_STOP -> {
+                    saveProgress()
+                    player.pause()
+                }
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(player, channelUri) {
+        while (true) {
+            delay(5_000)
+            saveProgress()
+        }
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            saveProgress()
+            player.stop()
+            player.detachViews()
+            player.release()
+            openFileDescriptor?.close()
+            libVlc.release()
+        }
+    }
+
+    PlayerScreenLayout(
+        state = state,
+        isPaused = isPaused,
+        onTogglePlayback = {
+            if (player.isPlaying) player.pause() else player.play()
+        },
+        onSaveProgress = ::saveProgress,
+        onPreviousChannel = onPreviousChannel,
+        onNextChannel = onNextChannel,
+        onSettings = onSettings,
+        videoSurface = {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { viewContext ->
+                    VLCVideoLayout(viewContext).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                        keepScreenOn = true
+                        player.attachViews(this, null, false, false)
+                    }
+                },
+            )
+        },
+    )
+}
