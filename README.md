@@ -67,4 +67,5 @@ channel. When it reaches the end of a channel, it starts again from the
 beginning.
 
 Developer setup, building, deployment, and release instructions are in
-[DEVELOPMENT.md](DEVELOPMENT.md).
+[DEVELOPMENT.md](DEVELOPMENT.md). See [CHANGELOG.md](CHANGELOG.md) for the
+version history.

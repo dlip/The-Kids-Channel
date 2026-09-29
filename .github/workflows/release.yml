@@ -40,6 +40,15 @@ jobs:
           echo "ANDROID_VERSION_NAME=$version_name" >> "$GITHUB_ENV"
           echo "ANDROID_VERSION_CODE=$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
 
+      - name: Prepare release notes from changelog
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          release_notes="$RUNNER_TEMP/release-notes.md"
+          bash .github/scripts/extract-changelog.sh \
+            "$ANDROID_VERSION_NAME" CHANGELOG.md "$release_notes"
+          echo "RELEASE_NOTES_FILE=$release_notes" >> "$GITHUB_ENV"
+
       - name: Restore signing key
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -99,8 +108,11 @@ jobs:
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --notes-file "$RELEASE_NOTES_FILE" \
+              --title "The Kids Channel $ANDROID_VERSION_NAME"
           else
             gh release create "$GITHUB_REF_NAME" dist/* \
-              --generate-notes \
+              --notes-file "$RELEASE_NOTES_FILE" \
               --title "The Kids Channel $ANDROID_VERSION_NAME"
           fi
