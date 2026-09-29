@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -25,7 +26,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
@@ -245,7 +245,12 @@ fun PlayerScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 )
 
-                SettingsHoldButton(
+                PlaybackSettingsButton(
+                    isPaused = isPaused,
+                    onClick = {
+                        showControls()
+                        if (player.playWhenReady) player.pause() else player.play()
+                    },
                     onHoldingChanged = { isHolding ->
                         settingsHoldActive = isHolding
                         if (isHolding) showControls()
@@ -257,26 +262,6 @@ fun PlayerScreen(
                         .size(52.dp),
                 )
 
-                FilledIconButton(
-                    onClick = {
-                        showControls()
-                        if (player.playWhenReady) player.pause() else player.play()
-                    },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(end = 16.dp, top = 80.dp)
-                        .size(52.dp),
-                    colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color.Black.copy(alpha = 0.55f),
-                        contentColor = Color.White,
-                    ),
-                ) {
-                    Icon(
-                        imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = if (isPaused) "Resume video" else "Pause video",
-                    )
-                }
-
                 Column(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
@@ -285,7 +270,13 @@ fun PlayerScreen(
                     verticalArrangement = Arrangement.SpaceEvenly,
                 ) {
                     ChannelButton(
-                        icon = { Icon(Icons.Default.KeyboardArrowUp, "Previous channel") },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "Previous channel",
+                                modifier = Modifier.size(48.dp),
+                            )
+                        },
                         onClick = {
                             showControls()
                             saveProgress()
@@ -293,7 +284,13 @@ fun PlayerScreen(
                         },
                     )
                     ChannelButton(
-                        icon = { Icon(Icons.Default.KeyboardArrowDown, "Next channel") },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Next channel",
+                                modifier = Modifier.size(48.dp),
+                            )
+                        },
                         onClick = {
                             showControls()
                             saveProgress()
@@ -307,12 +304,15 @@ fun PlayerScreen(
 }
 
 @Composable
-private fun SettingsHoldButton(
+private fun PlaybackSettingsButton(
+    isPaused: Boolean,
+    onClick: () -> Unit,
     onHoldingChanged: (Boolean) -> Unit,
     onHoldComplete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val progress = remember { Animatable(0f) }
+    val currentOnClick by rememberUpdatedState(onClick)
     val currentOnHoldingChanged by rememberUpdatedState(onHoldingChanged)
     val currentOnHoldComplete by rememberUpdatedState(onHoldComplete)
     var isHolding by remember { mutableStateOf(false) }
@@ -320,10 +320,11 @@ private fun SettingsHoldButton(
     LaunchedEffect(isHolding) {
         progress.snapTo(0f)
         if (isHolding) {
+            delay(500)
             progress.animateTo(
                 targetValue = 1f,
                 animationSpec = tween(
-                    durationMillis = 5_000,
+                    durationMillis = 4_500,
                     easing = LinearEasing,
                 ),
             )
@@ -332,44 +333,55 @@ private fun SettingsHoldButton(
     }
 
     Box(
-        modifier = modifier
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.55f))
-            .semantics {
-                contentDescription = "Hold for settings"
-                role = Role.Button
-            }
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    val down = awaitFirstDown(
-                        requireUnconsumed = false,
-                        pass = PointerEventPass.Initial,
-                    )
-                    down.consume()
-                    isHolding = true
-                    currentOnHoldingChanged(true)
-                    try {
-                        do {
-                            val event = awaitPointerEvent(PointerEventPass.Initial)
-                        } while (event.changes.any { it.pressed })
-                    } finally {
-                        isHolding = false
-                        currentOnHoldingChanged(false)
-                    }
-                }
-            },
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.55f))
+                .semantics {
+                    contentDescription = if (isPaused) {
+                        "Resume video. Hold for settings"
+                    } else {
+                        "Pause video. Hold for settings"
+                    }
+                    role = Role.Button
+                }
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(
+                            requireUnconsumed = false,
+                            pass = PointerEventPass.Initial,
+                        )
+                        down.consume()
+                        isHolding = true
+                        currentOnHoldingChanged(true)
+                        var holdCompleted = false
+                        try {
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                            } while (event.changes.any { it.pressed })
+                            holdCompleted = progress.value >= 1f
+                        } finally {
+                            isHolding = false
+                            currentOnHoldingChanged(false)
+                        }
+                        if (!holdCompleted) currentOnClick()
+                    }
+                },
+        )
+        Canvas(modifier = Modifier.requiredSize(104.dp)) {
             drawArc(
                 color = Color.Red.copy(alpha = 0.85f),
-                startAngle = -90f,
+                startAngle = 180f,
                 sweepAngle = progress.value * 360f,
                 useCenter = true,
             )
         }
         Icon(
-            Icons.Default.Settings,
+            imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
             contentDescription = null,
             tint = Color.White,
         )
