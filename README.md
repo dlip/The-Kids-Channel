@@ -1,88 +1,62 @@
+<p align="center">
+  <img src="artwork/app-icon-party-hat.png" alt="The Kids Channel party-hat icon" width="160">
+</p>
+
 # The Kids Channel
 
-An Android video player designed to work like a simple television for children.
+The Kids Channel turns a phone or tablet into a simple video player for
+children. There is no timeline, seeking, playlist editing, or next-video
+button. Videos play in order, loop continuously, and resume where they left
+off.
 
-Each immediate child folder inside an added root becomes a channel. Videos in a
-channel folder and all of its nested folders play in natural filename order,
-then loop. The app remembers the current video and playback position for every
-channel.
+![The Kids Channel playback controls](docs/player-controls.png)
 
-Playback has only Channel Up and Channel Down controls. There is no timeline,
-seeking, playlist editing, or next-video button.
+## Download and install
 
-## Development environment
+The Kids Channel requires Android 8.0 or newer.
 
-Install [Nix](https://nixos.org/) and [devenv](https://devenv.sh/), then enter the
-project environment:
+1. Open the [latest release](https://github.com/dlip/the-kids-channel/releases/latest).
+2. Under **Assets**, download the file ending in `.apk`.
+3. Open the downloaded APK on your phone or tablet.
+4. If Android blocks the installation, allow your browser or file manager to
+   install unknown apps, then try again.
 
-```sh
-devenv shell
-```
+Future versions can be installed over the current app without removing its
+folders or saved playback positions.
 
-This provides JDK 17, Gradle, Android SDK Platform 35, Android Build Tools 35,
-and ADB. If direnv is installed, `direnv allow` activates the same environment
-automatically.
-
-Build and test the app with:
-
-```sh
-./gradlew test assembleDebug
-```
-
-The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
-
-## Using the app
+## Set up channels
 
 1. Open the app and tap **Add root folder**.
-2. Select a folder whose immediate child folders contain videos.
-3. Hold the settings button for five seconds to add more root folders.
-4. Use the up and down buttons during playback to change channels.
+2. Select a folder containing one subfolder for each channel.
+3. Tap the up and down arrows to change channels.
 
-Prefix names with numbers when an explicit order is needed, such as
-`01 Welcome.mp4`, `02 Songs`, and `03 Stories.mp4`.
+For example:
 
-## Signed releases
-
-The `Signed Android release` GitHub Actions workflow builds a signed APK. A
-manual run stores the APK as a workflow artifact. Pushing a tag beginning with
-`v`, such as `v1.1.0`, also creates a GitHub Release and attaches the APK and
-its SHA-256 checksum.
-
-Create the signing key once:
-
-```sh
-keytool -genkeypair -v \
-  -keystore the-kids-channel-release.jks \
-  -alias the-kids-channel \
-  -keyalg RSA \
-  -keysize 2048 \
-  -validity 10000
+```text
+Kids Videos/
+├── Songs/
+│   ├── 01 Hello.mp4
+│   └── More Songs/
+│       └── 02 Goodbye.mp4
+└── Stories/
+    ├── 01 The Bear.mp4
+    └── 02 The Moon.mp4
 ```
 
-Keep the keystore and its passwords in a secure backup. Every future update
-must use the same key. Keystore files are ignored by Git and must not be
-committed.
+`Songs` and `Stories` are channels. Nested folders such as `More Songs` remain
+part of their parent channel. Videos are played in natural filename order, so
+number prefixes can be used to control their order.
 
-Install the [GitHub CLI](https://cli.github.com/), authenticate it, then add the
-four repository secrets:
+## Controls
 
-```sh
-base64 -w 0 the-kids-channel-release.jks | gh secret set ANDROID_KEYSTORE_BASE64
-gh secret set ANDROID_KEYSTORE_PASSWORD
-gh secret set ANDROID_KEY_ALIAS
-gh secret set ANDROID_KEY_PASSWORD
-```
+- Tap the screen to show the controls. They fade away after five seconds.
+- Tap the pause button to pause or resume playback.
+- Hold the pause button for 5 seconds to open Settings.
+- Tap the up or down arrow to change channels.
 
-Enter `the-kids-channel` for `ANDROID_KEY_ALIAS`. The password commands prompt
-for their values without placing them in the repository.
+The app remembers the current video and playback position separately for each
+channel. When it reaches the end of a channel, it starts again from the
+beginning.
 
-To create a published release:
-
-```sh
-git tag v1.1.0
-git push origin v1.1.0
-```
-
-For an unpublished build, open **Actions → Signed Android release → Run
-workflow**, enter a version name, and download the resulting artifact when the
-run completes.
+Developer setup, building, deployment, and release instructions are in
+[DEVELOPMENT.md](DEVELOPMENT.md).
