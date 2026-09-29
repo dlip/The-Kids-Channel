@@ -13,11 +13,13 @@ import com.thekidschannel.media.VideoItem
 import com.thekidschannel.media.relativeChannelIndex
 import com.thekidschannel.media.resolveResumePoint
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 data class MainUiState(
@@ -43,6 +45,7 @@ class MainViewModel(
     )
     val uiState: StateFlow<MainUiState> = _uiState
     private var channelLoadJob: Job? = null
+    private val progressSaveMutex = Mutex()
 
     init {
         viewModelScope.launch {
@@ -86,17 +89,19 @@ class MainViewModel(
         selectChannel(channels[nextIndex].uri)
     }
 
-    fun saveProgress(videoUri: String?, videoIndex: Int, positionMs: Long) {
-        val channel = _uiState.value.selectedChannel ?: return
-        if (videoUri == null || videoIndex < 0) return
-        viewModelScope.launch {
-            repository.saveProgress(
-                rootUri = channel.rootUri,
-                channelUri = channel.uri,
-                videoUri = videoUri,
-                videoIndex = videoIndex,
-                positionMs = positionMs,
-            )
+    fun saveProgress(channelUri: String, videoUri: String?, videoIndex: Int, positionMs: Long): Job? {
+        val channel = _uiState.value.channels.firstOrNull { it.uri == channelUri } ?: return null
+        if (videoUri == null || videoIndex < 0) return null
+        return viewModelScope.launch {
+            progressSaveMutex.withLock {
+                repository.saveProgress(
+                    rootUri = channel.rootUri,
+                    channelUri = channel.uri,
+                    videoUri = videoUri,
+                    videoIndex = videoIndex,
+                    positionMs = positionMs,
+                )
+            }
         }
     }
 

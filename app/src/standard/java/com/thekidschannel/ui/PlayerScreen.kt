@@ -25,6 +25,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.thekidschannel.MainUiState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -36,7 +37,7 @@ fun PlayerScreen(
     state: MainUiState,
     onPreviousChannel: () -> Unit,
     onNextChannel: () -> Unit,
-    onSaveProgress: (String?, Int, Long) -> Unit,
+    onSaveProgress: (String, String?, Int, Long) -> Job?,
     onSavePreview: (String, Bitmap) -> Unit,
     onSettings: () -> Unit,
     onPlaybackMessage: (String?) -> Unit,
@@ -59,10 +60,12 @@ fun PlayerScreen(
     var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember { mutableStateOf(false) }
+    var playingChannelUri by remember { mutableStateOf<String?>(null) }
 
-    fun persistProgress() {
+    fun persistProgress(): Job? {
         val videoUri = player.currentMediaItem?.mediaId
-        onSaveProgress(
+        return onSaveProgress(
+            playingChannelUri ?: return null,
             videoUri,
             player.currentMediaItemIndex,
             player.currentPosition,
@@ -96,13 +99,14 @@ fun PlayerScreen(
     }
 
     suspend fun prepareChannelChange() {
-        persistProgress()
+        persistProgress()?.join()
         captureAndSavePreview()
     }
 
     LaunchedEffect(channelUri, state.videos) {
         hasRenderedFirstFrame = false
         if (state.videos.isEmpty()) {
+            playingChannelUri = null
             player.clearMediaItems()
             return@LaunchedEffect
         }
@@ -113,6 +117,7 @@ fun PlayerScreen(
                 .build()
         }
         player.setMediaItems(items, state.startVideoIndex, state.startPositionMs)
+        playingChannelUri = channelUri
         player.repeatMode = Player.REPEAT_MODE_ALL
         player.prepare()
         player.playWhenReady = true

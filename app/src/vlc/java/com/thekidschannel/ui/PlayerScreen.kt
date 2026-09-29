@@ -25,6 +25,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.thekidschannel.MainUiState
 import com.thekidschannel.media.VideoItem
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -39,7 +40,7 @@ fun PlayerScreen(
     state: MainUiState,
     onPreviousChannel: () -> Unit,
     onNextChannel: () -> Unit,
-    onSaveProgress: (String?, Int, Long) -> Unit,
+    onSaveProgress: (String, String?, Int, Long) -> Job?,
     onSavePreview: (String, Bitmap) -> Unit,
     onSettings: () -> Unit,
     onPlaybackMessage: (String?) -> Unit,
@@ -63,16 +64,21 @@ fun PlayerScreen(
     var playlist by remember { mutableStateOf(emptyList<VideoItem>()) }
     var currentIndex by remember { mutableIntStateOf(0) }
     var pendingStartPositionMs by remember { mutableLongStateOf(0) }
+    var lastProgressPositionMs by remember { mutableLongStateOf(0) }
+    var playingChannelUri by remember { mutableStateOf<String?>(null) }
     var revealPreviewAfterMs by remember(channelUri) { mutableLongStateOf(Long.MAX_VALUE) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember { mutableStateOf(false) }
 
-    fun persistProgress() {
+    fun persistProgress(): Job? {
         val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString()
-        onSaveProgress(
+        val positionMs = maxOf(lastProgressPositionMs, player.time.coerceAtLeast(0))
+        lastProgressPositionMs = positionMs
+        return onSaveProgress(
+            playingChannelUri ?: return null,
             videoUri,
             currentIndex,
-            player.time.coerceAtLeast(0),
+            positionMs,
         )
     }
 
@@ -103,7 +109,7 @@ fun PlayerScreen(
     }
 
     suspend fun prepareChannelChange() {
-        persistProgress()
+        persistProgress()?.join()
         captureAndSavePreview()
     }
 
@@ -132,6 +138,8 @@ fun PlayerScreen(
             return
         }
         currentIndex = index
+        playingChannelUri = channelUri
+        lastProgressPositionMs = positionMs.coerceAtLeast(0)
         hasVideoOutput = false
         hasRenderedFirstFrame = false
         revealPreviewAfterMs = SystemClock.uptimeMillis() + MINIMUM_PREVIEW_TIME_MS
@@ -159,10 +167,18 @@ fun PlayerScreen(
         }
     }
 
+    fun applyPendingStartPosition() {
+        if (pendingStartPositionMs > 0 && player.isSeekable) {
+            player.time = pendingStartPositionMs
+            pendingStartPositionMs = 0
+        }
+    }
+
     LaunchedEffect(channelUri, state.videos) {
         playlist = state.videos
         failedItems = emptySet()
         if (playlist.isEmpty()) {
+            playingChannelUri = null
             player.stop()
             openFileDescriptor?.close()
             openFileDescriptor = null
@@ -181,17 +197,15 @@ fun PlayerScreen(
                 when (event.type) {
                     MediaPlayer.Event.Playing -> {
                         isPaused = false
-                        if (pendingStartPositionMs > 0) {
-                            val positionMs = pendingStartPositionMs
-                            pendingStartPositionMs = 0
-                            player.time = positionMs
-                        }
+                        applyPendingStartPosition()
                     }
+                    MediaPlayer.Event.SeekableChanged -> applyPendingStartPosition()
                     MediaPlayer.Event.Paused -> isPaused = true
                     MediaPlayer.Event.Vout -> {
                         hasVideoOutput = event.voutCount > 0
                     }
                     MediaPlayer.Event.TimeChanged -> {
+                        applyPendingStartPosition()
                         if (
                             hasVideoOutput &&
                             SystemClock.uptimeMillis() >= revealPreviewAfterMs

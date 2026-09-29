@@ -4,6 +4,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-09-30
+
+### Fixed
+
+- Preserved channel playback positions when switching channels quickly,
+  including while VLC is still starting or waiting to seek.
+
 ## [1.5.0] - 2026-09-29
 
 ### Added
