@@ -1,5 +1,7 @@
 package com.thekidschannel.ui
 
+import android.os.Build
+import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -61,10 +63,12 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.thekidschannel.MainUiState
+import com.thekidschannel.R
 import kotlinx.coroutines.delay
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -79,7 +83,13 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val player = remember { ExoPlayer.Builder(context).build() }
+    val player = remember {
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+        ExoPlayer.Builder(context, renderersFactory).build()
+    }
+    val requiresTextureViewWorkaround = Build.VERSION.SDK_INT == Build.VERSION_CODES.P &&
+        Build.MANUFACTURER.equals("HUAWEI", ignoreCase = true)
     val channelUri = state.selectedChannel?.uri
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var controlsVisible by remember { mutableStateOf(true) }
@@ -196,7 +206,16 @@ fun PlayerScreen(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { viewContext ->
-                PlayerView(viewContext).apply {
+                val playerView = if (requiresTextureViewWorkaround) {
+                    LayoutInflater.from(viewContext).inflate(
+                        R.layout.player_view_texture,
+                        null,
+                        false,
+                    ) as PlayerView
+                } else {
+                    PlayerView(viewContext)
+                }
+                playerView.apply {
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT,
