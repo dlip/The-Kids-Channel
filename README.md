@@ -1,13 +1,12 @@
-<p align="center">
-  <img src="artwork/app-icon-party-hat.png" alt="The Kids Channel party-hat icon" width="160">
-</p>
+# <img src="artwork/app-icon-party-hat.png" alt="The Kids Channel party-hat icon" width="64" align="absmiddle"> The Kids Channel
 
-# The Kids Channel
+The Kids Channel is a simple player for video files stored locally on an
+Android phone, tablet, SD card, or connected storage. It does not provide,
+stream, or download videos. You choose folders containing your own video
+files, and each folder becomes a channel for children to watch.
 
-The Kids Channel turns a phone or tablet into a simple video player for
-children. There is no timeline, seeking, playlist editing, or next-video
-button. Videos play in order, loop continuously, and resume where they left
-off.
+There is no timeline, seeking, playlist editing, or next-video button. Videos
+play in order, loop continuously, and resume where they left off.
 
 ![The Kids Channel playback controls](docs/player-controls.png)
 
