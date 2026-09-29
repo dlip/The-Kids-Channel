@@ -1,8 +1,10 @@
 package com.thekidschannel.ui
 
 import android.content.res.AssetFileDescriptor
+import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -13,6 +15,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -23,6 +26,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.thekidschannel.MainUiState
 import com.thekidschannel.media.VideoItem
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
@@ -34,31 +40,69 @@ fun PlayerScreen(
     onPreviousChannel: () -> Unit,
     onNextChannel: () -> Unit,
     onSaveProgress: (String?, Int, Long) -> Unit,
+    onSavePreview: (String, Bitmap) -> Unit,
     onSettings: () -> Unit,
     onPlaybackMessage: (String?) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val libVlc = remember { LibVLC(context) }
     val player = remember { MediaPlayer(libVlc) }
     var videoLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var videoViewsAttached by remember { mutableStateOf(false) }
     var resumePlaybackOnStart by remember { mutableStateOf(true) }
+    val frameCaptureMutex = remember { Mutex() }
     var openFileDescriptor by remember { mutableStateOf<AssetFileDescriptor?>(null) }
     val channelUri = state.selectedChannel?.uri
+    var hasVideoOutput by remember(channelUri) { mutableStateOf(false) }
+    var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
     var playlist by remember { mutableStateOf(emptyList<VideoItem>()) }
     var currentIndex by remember { mutableIntStateOf(0) }
     var pendingStartPositionMs by remember { mutableLongStateOf(0) }
+    var revealPreviewAfterMs by remember(channelUri) { mutableLongStateOf(Long.MAX_VALUE) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember { mutableStateOf(false) }
 
-    fun saveProgress() {
+    fun persistProgress() {
+        val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString()
         onSaveProgress(
-            playlist.getOrNull(currentIndex)?.uri?.toString(),
+            videoUri,
             currentIndex,
             player.time.coerceAtLeast(0),
         )
+    }
+
+    suspend fun captureAndSavePreview() {
+        val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString() ?: return
+        val previewChannelUri = channelUri ?: return
+        val previewSource = videoLayout ?: return
+        if (!hasRenderedFirstFrame) return
+        frameCaptureMutex.withLock {
+            if (
+                channelUri != previewChannelUri ||
+                playlist.getOrNull(currentIndex)?.uri?.toString() != videoUri ||
+                !hasRenderedFirstFrame
+            ) {
+                return@withLock
+            }
+            captureVideoFrame(previewSource)?.let { bitmap ->
+                onSavePreview(previewChannelUri, bitmap)
+            }
+        }
+    }
+
+    fun saveProgress() {
+        persistProgress()
+        coroutineScope.launch {
+            captureAndSavePreview()
+        }
+    }
+
+    suspend fun prepareChannelChange() {
+        persistProgress()
+        captureAndSavePreview()
     }
 
     fun attachVideoViews() {
@@ -86,6 +130,9 @@ fun PlayerScreen(
             return
         }
         currentIndex = index
+        hasVideoOutput = false
+        hasRenderedFirstFrame = false
+        revealPreviewAfterMs = SystemClock.uptimeMillis() + MINIMUM_PREVIEW_TIME_MS
         pendingStartPositionMs = positionMs.coerceAtLeast(0)
         openFileDescriptor?.close()
         openFileDescriptor = fileDescriptor
@@ -139,6 +186,17 @@ fun PlayerScreen(
                         }
                     }
                     MediaPlayer.Event.Paused -> isPaused = true
+                    MediaPlayer.Event.Vout -> {
+                        hasVideoOutput = event.voutCount > 0
+                    }
+                    MediaPlayer.Event.TimeChanged -> {
+                        if (
+                            hasVideoOutput &&
+                            SystemClock.uptimeMillis() >= revealPreviewAfterMs
+                        ) {
+                            hasRenderedFirstFrame = true
+                        }
+                    }
                     MediaPlayer.Event.EndReached -> {
                         val nextIndex = (currentIndex + 1) % playlist.size.coerceAtLeast(1)
                         playVideo(nextIndex)
@@ -164,6 +222,8 @@ fun PlayerScreen(
                     resumePlaybackOnStart = !isPaused
                     player.pause()
                     detachVideoViews()
+                    hasVideoOutput = false
+                    hasRenderedFirstFrame = false
                 }
                 else -> Unit
             }
@@ -195,10 +255,11 @@ fun PlayerScreen(
     PlayerScreenLayout(
         state = state,
         isPaused = isPaused,
+        showPreview = !hasRenderedFirstFrame,
         onTogglePlayback = {
             if (player.isPlaying) player.pause() else player.play()
         },
-        onSaveProgress = ::saveProgress,
+        onPrepareChannelChange = ::prepareChannelChange,
         onPreviousChannel = onPreviousChannel,
         onNextChannel = onNextChannel,
         onSettings = onSettings,
@@ -220,3 +281,5 @@ fun PlayerScreen(
         },
     )
 }
+
+private const val MINIMUM_PREVIEW_TIME_MS = 250L

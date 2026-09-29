@@ -13,6 +13,9 @@ interface ChannelProgressDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(progress: ChannelProgressEntity)
 
+    @Query("SELECT channelUri FROM channel_progress WHERE rootUri = :rootUri")
+    suspend fun getChannelUrisForRoot(rootUri: String): List<String>
+
     @Query("DELETE FROM channel_progress WHERE rootUri = :rootUri")
     suspend fun deleteForRoot(rootUri: String)
 }

@@ -2,11 +2,16 @@ package com.thekidschannel.data
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.security.MessageDigest
 
 class RootRepository(
     private val context: Context,
@@ -38,7 +43,11 @@ class RootRepository(
     }
 
     suspend fun removeRoot(uri: String) {
+        val channelUris = progressDao.getChannelUrisForRoot(uri)
         progressDao.deleteForRoot(uri)
+        withContext(Dispatchers.IO) {
+            channelUris.forEach { previewFile(it).delete() }
+        }
         rootDao.delete(uri)
         runCatching {
             context.contentResolver.releasePersistableUriPermission(
@@ -69,7 +78,44 @@ class RootRepository(
         )
     }
 
+    fun getPreviewPath(channelUri: String): String? =
+        previewFile(channelUri).takeIf(File::isFile)?.absolutePath
+
+    suspend fun savePreview(channelUri: String, bitmap: Bitmap): String? =
+        withContext(Dispatchers.IO) {
+            val destination = previewFile(channelUri)
+            val directory = destination.parentFile ?: return@withContext null
+            if (!directory.exists() && !directory.mkdirs()) return@withContext null
+            val temporary = File(directory, "${destination.name}.tmp")
+            val saved = runCatching {
+                temporary.outputStream().buffered().use { output ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 82, output)
+                }
+            }.getOrDefault(false)
+            if (!saved) {
+                temporary.delete()
+                return@withContext null
+            }
+            if (!temporary.renameTo(destination)) {
+                runCatching { temporary.copyTo(destination, overwrite = true) }
+                    .onFailure {
+                        temporary.delete()
+                        return@withContext null
+                    }
+                temporary.delete()
+            }
+            destination.absolutePath
+        }
+
+    private fun previewFile(channelUri: String): File {
+        val name = MessageDigest.getInstance("SHA-256")
+            .digest(channelUri.toByteArray(Charsets.UTF_8))
+            .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return File(File(context.filesDir, PREVIEW_DIRECTORY), "$name.jpg")
+    }
+
     private companion object {
         const val SELECTED_CHANNEL_KEY = "selected_channel_uri"
+        const val PREVIEW_DIRECTORY = "channel-previews"
     }
 }

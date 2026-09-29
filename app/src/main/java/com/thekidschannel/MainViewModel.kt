@@ -1,6 +1,7 @@
 package com.thekidschannel
 
 import android.net.Uri
+import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class MainUiState(
     val roots: List<RootEntity> = emptyList(),
@@ -25,6 +27,8 @@ data class MainUiState(
     val videos: List<VideoItem> = emptyList(),
     val startVideoIndex: Int = 0,
     val startPositionMs: Long = 0,
+    val previewPath: String? = null,
+    val previewUpdatedAt: Long = 0,
     val isLoading: Boolean = true,
     val message: String? = null,
 )
@@ -93,6 +97,26 @@ class MainViewModel(
         }
     }
 
+    fun savePreview(channelUri: String, bitmap: Bitmap) {
+        viewModelScope.launch {
+            try {
+                val previewPath = repository.savePreview(channelUri, bitmap) ?: return@launch
+                _uiState.update { state ->
+                    if (state.selectedChannel?.uri == channelUri) {
+                        state.copy(
+                            previewPath = previewPath,
+                            previewUpdatedAt = File(previewPath).lastModified(),
+                        )
+                    } else {
+                        state
+                    }
+                }
+            } finally {
+                bitmap.recycle()
+            }
+        }
+    }
+
     fun showMessage(message: String?) {
         _uiState.update { it.copy(message = message) }
     }
@@ -109,6 +133,8 @@ class MainViewModel(
                 it.copy(
                     selectedChannel = null,
                     videos = emptyList(),
+                    previewPath = null,
+                    previewUpdatedAt = 0,
                     isLoading = false,
                     message = if (it.roots.isEmpty()) {
                         null
@@ -121,10 +147,13 @@ class MainViewModel(
         }
 
         repository.selectedChannelUri = channel.uri
+        val previewPath = repository.getPreviewPath(channel.uri)
         _uiState.update {
             it.copy(
                 selectedChannel = channel,
                 videos = emptyList(),
+                previewPath = previewPath,
+                previewUpdatedAt = previewPath?.let { path -> File(path).lastModified() } ?: 0,
                 isLoading = true,
                 message = null,
             )

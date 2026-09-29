@@ -1,5 +1,6 @@
 package com.thekidschannel.ui
 
+import android.graphics.Bitmap
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -8,6 +9,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -25,6 +27,9 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.thekidschannel.MainUiState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -33,29 +38,67 @@ fun PlayerScreen(
     onPreviousChannel: () -> Unit,
     onNextChannel: () -> Unit,
     onSaveProgress: (String?, Int, Long) -> Unit,
+    onSavePreview: (String, Bitmap) -> Unit,
     onSettings: () -> Unit,
     onPlaybackMessage: (String?) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
     val player = remember {
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
         ExoPlayer.Builder(context, renderersFactory).build()
     }
     val channelUri = state.selectedChannel?.uri
+    var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    val frameCaptureMutex = remember { Mutex() }
+    var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember { mutableStateOf(false) }
 
-    fun saveProgress() {
+    fun persistProgress() {
+        val videoUri = player.currentMediaItem?.mediaId
         onSaveProgress(
-            player.currentMediaItem?.mediaId,
+            videoUri,
             player.currentMediaItemIndex,
             player.currentPosition,
         )
     }
 
+    suspend fun captureAndSavePreview() {
+        val videoUri = player.currentMediaItem?.mediaId ?: return
+        val previewChannelUri = channelUri ?: return
+        val previewSource = playerView ?: return
+        if (!hasRenderedFirstFrame) return
+        frameCaptureMutex.withLock {
+            if (
+                channelUri != previewChannelUri ||
+                player.currentMediaItem?.mediaId != videoUri ||
+                !hasRenderedFirstFrame
+            ) {
+                return@withLock
+            }
+            captureVideoFrame(previewSource)?.let { bitmap ->
+                onSavePreview(previewChannelUri, bitmap)
+            }
+        }
+    }
+
+    fun saveProgress() {
+        persistProgress()
+        coroutineScope.launch {
+            captureAndSavePreview()
+        }
+    }
+
+    suspend fun prepareChannelChange() {
+        persistProgress()
+        captureAndSavePreview()
+    }
+
     LaunchedEffect(channelUri, state.videos) {
+        hasRenderedFirstFrame = false
         if (state.videos.isEmpty()) {
             player.clearMediaItems()
             return@LaunchedEffect
@@ -76,11 +119,16 @@ fun PlayerScreen(
     DisposableEffect(player, channelUri) {
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                hasRenderedFirstFrame = false
                 saveProgress()
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 isPaused = !playWhenReady
+            }
+
+            override fun onRenderedFirstFrame() {
+                hasRenderedFirstFrame = true
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -111,6 +159,7 @@ fun PlayerScreen(
                 Lifecycle.Event.ON_STOP -> {
                     saveProgress()
                     player.pause()
+                    hasRenderedFirstFrame = false
                 }
                 else -> Unit
             }
@@ -138,10 +187,11 @@ fun PlayerScreen(
     PlayerScreenLayout(
         state = state,
         isPaused = isPaused,
+        showPreview = !hasRenderedFirstFrame,
         onTogglePlayback = {
             if (player.playWhenReady) player.pause() else player.play()
         },
-        onSaveProgress = ::saveProgress,
+        onPrepareChannelChange = ::prepareChannelChange,
         onPreviousChannel = onPreviousChannel,
         onNextChannel = onNextChannel,
         onSettings = onSettings,
@@ -158,6 +208,7 @@ fun PlayerScreen(
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                         keepScreenOn = true
                         this.player = player
+                        playerView = this
                     }
                 },
                 update = { it.player = player },

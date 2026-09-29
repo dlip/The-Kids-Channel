@@ -71,6 +71,7 @@ fun KidsChannelApp(
             onPreviousChannel = { viewModel.selectRelativeChannel(-1) },
             onNextChannel = { viewModel.selectRelativeChannel(1) },
             onSaveProgress = viewModel::saveProgress,
+            onSavePreview = viewModel::savePreview,
             onSettings = { showSettings = true },
             onPlaybackMessage = viewModel::showMessage,
         )

@@ -1,12 +1,16 @@
 package com.thekidschannel.ui
 
+import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -37,28 +41,33 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.thekidschannel.MainUiState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun PlayerScreenLayout(
     state: MainUiState,
     isPaused: Boolean,
+    showPreview: Boolean,
     onTogglePlayback: () -> Unit,
-    onSaveProgress: () -> Unit,
+    onPrepareChannelChange: suspend () -> Unit,
     onPreviousChannel: () -> Unit,
     onNextChannel: () -> Unit,
     onSettings: () -> Unit,
@@ -68,10 +77,39 @@ internal fun PlayerScreenLayout(
     var controlsVisible by remember { mutableStateOf(true) }
     var controlsInteraction by remember { mutableIntStateOf(0) }
     var settingsHoldActive by remember { mutableStateOf(false) }
+    var channelChangeInProgress by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    val preview = remember(
+        state.previewPath,
+        state.previewUpdatedAt,
+        state.isLoading,
+        showPreview,
+    ) {
+        if (state.isLoading || showPreview) {
+            state.previewPath
+                ?.let(BitmapFactory::decodeFile)
+                ?.asImageBitmap()
+        } else {
+            null
+        }
+    }
 
     fun showControls() {
         controlsVisible = true
         controlsInteraction++
+    }
+
+    fun changeChannel(change: () -> Unit) {
+        if (channelChangeInProgress) return
+        channelChangeInProgress = true
+        coroutineScope.launch {
+            try {
+                onPrepareChannelChange()
+                change()
+            } finally {
+                channelChangeInProgress = false
+            }
+        }
     }
 
     LaunchedEffect(channelUri, controlsInteraction, settingsHoldActive) {
@@ -88,6 +126,27 @@ internal fun PlayerScreenLayout(
             .background(Color.Black),
     ) {
         videoSurface()
+
+        AnimatedVisibility(
+            visible = state.isLoading || showPreview,
+            enter = EnterTransition.None,
+            exit = ExitTransition.None,
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                preview?.let { image ->
+                    Image(
+                        bitmap = image,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -158,8 +217,7 @@ internal fun PlayerScreenLayout(
                         },
                         onClick = {
                             showControls()
-                            onSaveProgress()
-                            onPreviousChannel()
+                            changeChannel(onPreviousChannel)
                         },
                     )
                     ChannelButton(
@@ -172,8 +230,7 @@ internal fun PlayerScreenLayout(
                         },
                         onClick = {
                             showControls()
-                            onSaveProgress()
-                            onNextChannel()
+                            changeChannel(onNextChannel)
                         },
                     )
                 }
