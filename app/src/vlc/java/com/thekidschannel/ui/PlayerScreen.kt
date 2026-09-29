@@ -42,6 +42,9 @@ fun PlayerScreen(
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val libVlc = remember { LibVLC(context) }
     val player = remember { MediaPlayer(libVlc) }
+    var videoLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
+    var videoViewsAttached by remember { mutableStateOf(false) }
+    var resumePlaybackOnStart by remember { mutableStateOf(true) }
     var openFileDescriptor by remember { mutableStateOf<AssetFileDescriptor?>(null) }
     val channelUri = state.selectedChannel?.uri
     var playlist by remember { mutableStateOf(emptyList<VideoItem>()) }
@@ -56,6 +59,21 @@ fun PlayerScreen(
             currentIndex,
             player.time.coerceAtLeast(0),
         )
+    }
+
+    fun attachVideoViews() {
+        val layout = videoLayout ?: return
+        if (!videoViewsAttached) {
+            player.attachViews(layout, null, false, false)
+            videoViewsAttached = true
+        }
+    }
+
+    fun detachVideoViews() {
+        if (videoViewsAttached) {
+            player.detachViews()
+            videoViewsAttached = false
+        }
     }
 
     fun playVideo(index: Int, positionMs: Long = 0) {
@@ -137,10 +155,15 @@ fun PlayerScreen(
     DisposableEffect(lifecycleOwner, channelUri) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> if (playlist.isNotEmpty()) player.play()
+                Lifecycle.Event.ON_START -> {
+                    attachVideoViews()
+                    if (playlist.isNotEmpty() && resumePlaybackOnStart) player.play()
+                }
                 Lifecycle.Event.ON_STOP -> {
                     saveProgress()
+                    resumePlaybackOnStart = !isPaused
                     player.pause()
+                    detachVideoViews()
                 }
                 else -> Unit
             }
@@ -162,7 +185,7 @@ fun PlayerScreen(
         onDispose {
             saveProgress()
             player.stop()
-            player.detachViews()
+            detachVideoViews()
             player.release()
             openFileDescriptor?.close()
             libVlc.release()
@@ -189,7 +212,8 @@ fun PlayerScreen(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                         )
                         keepScreenOn = true
-                        player.attachViews(this, null, false, false)
+                        videoLayout = this
+                        attachVideoViews()
                     }
                 },
             )
