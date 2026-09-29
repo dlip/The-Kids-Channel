@@ -29,6 +29,12 @@ class RootRepository(
             preferences.edit { putString(SELECTED_CHANNEL_KEY, value) }
         }
 
+    var normalizeAudio: Boolean
+        get() = preferences.getBoolean(NORMALIZE_AUDIO_KEY, true)
+        set(value) {
+            preferences.edit { putBoolean(NORMALIZE_AUDIO_KEY, value) }
+        }
+
     suspend fun addRoot(uri: Uri) {
         val name = DocumentFile.fromTreeUri(context, uri)?.name
             ?.takeIf(String::isNotBlank)
@@ -116,6 +122,7 @@ class RootRepository(
 
     private companion object {
         const val SELECTED_CHANNEL_KEY = "selected_channel_uri"
+        const val NORMALIZE_AUDIO_KEY = "normalize_audio"
         const val PREVIEW_DIRECTORY = "channel-previews"
     }
 }

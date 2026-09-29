@@ -48,7 +48,9 @@ fun PlayerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    val libVlc = remember { LibVLC(context) }
+    val libVlc = remember(state.normalizeAudio) {
+        LibVLC(context, vlcAudioNormalizationOptions(state.normalizeAudio))
+    }
     val player = remember { MediaPlayer(libVlc) }
     var videoLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var videoViewsAttached by remember { mutableStateOf(false) }
@@ -283,3 +285,14 @@ fun PlayerScreen(
 }
 
 private const val MINIMUM_PREVIEW_TIME_MS = 250L
+
+internal fun vlcAudioNormalizationOptions(enabled: Boolean): MutableList<String> =
+    if (enabled) {
+        arrayListOf(
+            "--audio-filter=normvol",
+            "--norm-max-level=2.0",
+            "--norm-buff-size=20",
+        )
+    } else {
+        arrayListOf()
+    }

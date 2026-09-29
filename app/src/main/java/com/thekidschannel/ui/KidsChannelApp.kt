@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -65,6 +66,7 @@ fun KidsChannelApp(
             onClose = { showSettings = false },
             onAdd = { folderPicker.launch(null) },
             onRemove = viewModel::removeRoot,
+            onNormalizeAudioChanged = viewModel::setNormalizeAudio,
         )
         else -> PlayerScreen(
             state = state,
@@ -93,11 +95,12 @@ private fun ChannelSettings(
     onClose: () -> Unit,
     onAdd: () -> Unit,
     onRemove: (String) -> Unit,
+    onNormalizeAudioChanged: (Boolean) -> Unit,
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Root folders") },
+                title = { Text("Settings") },
                 navigationIcon = {
                     if (canClose) {
                         IconButton(onClick = onClose) {
@@ -117,6 +120,19 @@ private fun ChannelSettings(
                 .padding(padding)
                 .padding(horizontal = 20.dp),
         ) {
+            ListItem(
+                headlineContent = { Text("Normalize audio") },
+                supportingContent = {
+                    Text("Keep quiet and loud videos at a more consistent level")
+                },
+                trailingContent = {
+                    Switch(
+                        checked = state.normalizeAudio,
+                        onCheckedChange = onNormalizeAudioChanged,
+                    )
+                },
+            )
+            Spacer(Modifier.height(12.dp))
             Text(
                 "Each folder directly inside a selected root becomes a channel. " +
                     "Folders nested inside a channel are included in its playlist.",

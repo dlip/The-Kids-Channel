@@ -21,7 +21,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -45,9 +44,13 @@ fun PlayerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
-    val player = remember {
-        val renderersFactory = DefaultRenderersFactory(context)
-            .setEnableDecoderFallback(true)
+    val player = remember(state.normalizeAudio) {
+        val renderersFactory = NormalizingRenderersFactory(
+            context,
+            state.normalizeAudio,
+        ).apply {
+            setEnableDecoderFallback(true)
+        }
         ExoPlayer.Builder(context, renderersFactory).build()
     }
     val channelUri = state.selectedChannel?.uri

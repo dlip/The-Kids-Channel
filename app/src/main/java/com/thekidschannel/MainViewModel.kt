@@ -29,6 +29,7 @@ data class MainUiState(
     val startPositionMs: Long = 0,
     val previewPath: String? = null,
     val previewUpdatedAt: Long = 0,
+    val normalizeAudio: Boolean = true,
     val isLoading: Boolean = true,
     val message: String? = null,
 )
@@ -37,7 +38,9 @@ class MainViewModel(
     private val repository: RootRepository,
     private val scanner: ChannelScanner,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(MainUiState())
+    private val _uiState = MutableStateFlow(
+        MainUiState(normalizeAudio = repository.normalizeAudio),
+    )
     val uiState: StateFlow<MainUiState> = _uiState
     private var channelLoadJob: Job? = null
 
@@ -119,6 +122,11 @@ class MainViewModel(
 
     fun showMessage(message: String?) {
         _uiState.update { it.copy(message = message) }
+    }
+
+    fun setNormalizeAudio(enabled: Boolean) {
+        repository.normalizeAudio = enabled
+        _uiState.update { it.copy(normalizeAudio = enabled) }
     }
 
     private fun selectChannel(uri: String) {

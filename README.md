@@ -59,6 +59,9 @@ number prefixes can be used to control their order.
 - Hold the pause button for 5 seconds to open Settings.
 - Tap the up or down arrow to change channels.
 
+Settings includes automatic audio normalization, enabled by default, to keep
+quiet and loud videos at a more consistent volume.
+
 The app remembers the current video and playback position separately for each
 channel. When it reaches the end of a channel, it starts again from the
 beginning.
