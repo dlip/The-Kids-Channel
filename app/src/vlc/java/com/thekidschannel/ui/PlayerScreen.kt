@@ -277,6 +277,11 @@ fun PlayerScreen(
         onTogglePlayback = {
             if (player.isPlaying) player.pause() else player.play()
         },
+        onVideoFrameVisible = {
+            frameCaptureMutex.withLock {
+                videoLayout?.let { hasVisibleVideoFrame(it) } ?: false
+            }
+        },
         onPrepareChannelChange = ::prepareChannelChange,
         onPreviousChannel = onPreviousChannel,
         onNextChannel = onNextChannel,

@@ -4,10 +4,17 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-30
+
 ### Added
 
 - Animated channel changes with the current video frame sliding out and the
   next channel's saved preview sliding in when available.
+
+### Fixed
+
+- Kept the next channel's saved preview visible until video frames are ready,
+  then faded it into playback over 100 ms to soften black flashes.
 
 ## [1.5.1] - 2026-09-30
 

@@ -88,6 +88,7 @@ internal fun PlayerScreenLayout(
     isPaused: Boolean,
     showPreview: Boolean,
     onTogglePlayback: () -> Unit,
+    onVideoFrameVisible: suspend () -> Boolean,
     onPrepareChannelChange: suspend () -> Bitmap?,
     onPreviousChannel: () -> Unit,
     onNextChannel: () -> Unit,
@@ -101,20 +102,34 @@ internal fun PlayerScreenLayout(
     var channelChangeInProgress by remember { mutableStateOf(false) }
     var pendingChannelChange by remember { mutableStateOf<PendingChannelChange?>(null) }
     var channelSlide by remember { mutableStateOf<ChannelSlide?>(null) }
+    var keepPreviewVisible by remember(channelUri) { mutableStateOf(true) }
     val slideProgress = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
+    val previewVisible = state.isLoading || showPreview ||
+        (keepPreviewVisible && state.previewPath != null)
     val preview = remember(
         state.previewPath,
         state.previewUpdatedAt,
-        state.isLoading,
-        showPreview,
     ) {
-        if (state.isLoading || showPreview) {
-            state.previewPath
-                ?.let(BitmapFactory::decodeFile)
-                ?.asImageBitmap()
+        state.previewPath
+            ?.let(BitmapFactory::decodeFile)
+            ?.asImageBitmap()
+    }
+
+    LaunchedEffect(channelUri, showPreview) {
+        if (showPreview) {
+            keepPreviewVisible = true
         } else {
-            null
+            var visibleFrames = 0
+            repeat(MAX_PREVIEW_FRAME_CHECKS) {
+                delay(50)
+                visibleFrames = if (onVideoFrameVisible()) visibleFrames + 1 else 0
+                if (visibleFrames >= 2) {
+                    keepPreviewVisible = false
+                    return@LaunchedEffect
+                }
+            }
+            keepPreviewVisible = false
         }
     }
 
@@ -196,9 +211,9 @@ internal fun PlayerScreenLayout(
         videoSurface()
 
         AnimatedVisibility(
-            visible = state.isLoading || showPreview,
+            visible = previewVisible,
             enter = EnterTransition.None,
-            exit = ExitTransition.None,
+            exit = fadeOut(tween(durationMillis = PREVIEW_FADE_OUT_MS)),
         ) {
             Box(
                 modifier = Modifier
@@ -310,6 +325,9 @@ internal fun PlayerScreenLayout(
         }
     }
 }
+
+private const val MAX_PREVIEW_FRAME_CHECKS = 40
+private const val PREVIEW_FADE_OUT_MS = 100
 
 @Composable
 private fun ChannelSlideOverlay(slide: ChannelSlide, progress: () -> Float) {
