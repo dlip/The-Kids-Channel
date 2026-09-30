@@ -1,10 +1,12 @@
 package com.thekidschannel.ui
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -17,6 +19,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -36,6 +39,7 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,8 +51,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
@@ -56,10 +63,24 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.thekidschannel.MainUiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private data class PendingChannelChange(
+    val channelUri: String?,
+    val name: String,
+    val frozenFrame: Bitmap?,
+    val direction: Int,
+)
+
+private data class ChannelSlide(
+    val previous: PendingChannelChange,
+    val name: String,
+    val preview: ImageBitmap?,
+)
 
 @Composable
 internal fun PlayerScreenLayout(
@@ -67,7 +88,7 @@ internal fun PlayerScreenLayout(
     isPaused: Boolean,
     showPreview: Boolean,
     onTogglePlayback: () -> Unit,
-    onPrepareChannelChange: suspend () -> Unit,
+    onPrepareChannelChange: suspend () -> Bitmap?,
     onPreviousChannel: () -> Unit,
     onNextChannel: () -> Unit,
     onSettings: () -> Unit,
@@ -78,6 +99,9 @@ internal fun PlayerScreenLayout(
     var controlsInteraction by remember { mutableIntStateOf(0) }
     var settingsHoldActive by remember { mutableStateOf(false) }
     var channelChangeInProgress by remember { mutableStateOf(false) }
+    var pendingChannelChange by remember { mutableStateOf<PendingChannelChange?>(null) }
+    var channelSlide by remember { mutableStateOf<ChannelSlide?>(null) }
+    val slideProgress = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
     val preview = remember(
         state.previewPath,
@@ -99,16 +123,60 @@ internal fun PlayerScreenLayout(
         controlsInteraction++
     }
 
-    fun changeChannel(change: () -> Unit) {
+    fun changeChannel(direction: Int, change: () -> Unit) {
         if (channelChangeInProgress) return
         channelChangeInProgress = true
         coroutineScope.launch {
             try {
-                onPrepareChannelChange()
+                val frozenFrame = onPrepareChannelChange()
+                if (state.channels.size > 1) {
+                    slideProgress.snapTo(0f)
+                    val pending = PendingChannelChange(
+                        channelUri = channelUri,
+                        name = state.selectedChannel?.name.orEmpty(),
+                        frozenFrame = frozenFrame,
+                        direction = direction,
+                    )
+                    pendingChannelChange = pending
+                    channelSlide = ChannelSlide(pending, name = "", preview = null)
+                } else {
+                    frozenFrame?.recycle()
+                }
                 change()
-            } finally {
+                if (pendingChannelChange == null) channelChangeInProgress = false
+            } catch (error: Throwable) {
+                pendingChannelChange?.frozenFrame?.recycle()
+                channelSlide = null
+                pendingChannelChange = null
                 channelChangeInProgress = false
+                throw error
             }
+        }
+    }
+
+    LaunchedEffect(channelUri) {
+        val pending = pendingChannelChange ?: return@LaunchedEffect
+        if (pending.channelUri == channelUri) return@LaunchedEffect
+        try {
+            channelSlide = ChannelSlide(
+                previous = pending,
+                name = state.selectedChannel?.name.orEmpty(),
+                preview = state.previewPath
+                    ?.let(BitmapFactory::decodeFile)
+                    ?.asImageBitmap(),
+            )
+            slideProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 420,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+        } finally {
+            if (channelSlide == null) pending.frozenFrame?.recycle()
+            channelSlide = null
+            pendingChannelChange = null
+            channelChangeInProgress = false
         }
     }
 
@@ -166,6 +234,10 @@ internal fun PlayerScreenLayout(
             )
         }
 
+        channelSlide?.let { slide ->
+            ChannelSlideOverlay(slide) { slideProgress.value }
+        }
+
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(tween(durationMillis = 200)),
@@ -217,7 +289,7 @@ internal fun PlayerScreenLayout(
                         },
                         onClick = {
                             showControls()
-                            changeChannel(onPreviousChannel)
+                            changeChannel(-1, onPreviousChannel)
                         },
                     )
                     ChannelButton(
@@ -230,11 +302,69 @@ internal fun PlayerScreenLayout(
                         },
                         onClick = {
                             showControls()
-                            changeChannel(onNextChannel)
+                            changeChannel(1, onNextChannel)
                         },
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ChannelSlideOverlay(slide: ChannelSlide, progress: () -> Float) {
+    DisposableEffect(slide.previous.frozenFrame) {
+        onDispose {
+            slide.previous.frozenFrame?.let { frame ->
+                if (!frame.isRecycled) frame.recycle()
+            }
+        }
+    }
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds(),
+    ) {
+        val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
+        val direction = slide.previous.direction
+        ChannelSlidePanel(
+            name = slide.previous.name,
+            preview = slide.previous.frozenFrame?.asImageBitmap(),
+            modifier = Modifier.graphicsLayer {
+                translationY = -direction * progress() * heightPx
+            },
+        )
+        ChannelSlidePanel(
+            name = slide.name,
+            preview = slide.preview,
+            modifier = Modifier.graphicsLayer {
+                translationY = direction * (1f - progress()) * heightPx
+            },
+        )
+    }
+}
+
+@Composable
+private fun ChannelSlidePanel(name: String, preview: ImageBitmap?, modifier: Modifier) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (preview == null) {
+            Text(
+                text = name,
+                color = Color.White,
+                style = MaterialTheme.typography.titleLarge,
+            )
+        } else {
+            Image(
+                bitmap = preview,
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
     }
 }

@@ -72,22 +72,23 @@ fun PlayerScreen(
         )
     }
 
-    suspend fun captureAndSavePreview() {
-        val videoUri = player.currentMediaItem?.mediaId ?: return
-        val previewChannelUri = channelUri ?: return
-        val previewSource = playerView ?: return
-        if (!hasRenderedFirstFrame) return
-        frameCaptureMutex.withLock {
+    suspend fun captureAndSavePreview(freezeFrame: Boolean = false): Bitmap? {
+        val videoUri = player.currentMediaItem?.mediaId ?: return null
+        val previewChannelUri = channelUri ?: return null
+        val previewSource = playerView ?: return null
+        if (!hasRenderedFirstFrame) return null
+        return frameCaptureMutex.withLock {
             if (
                 channelUri != previewChannelUri ||
                 player.currentMediaItem?.mediaId != videoUri ||
                 !hasRenderedFirstFrame
             ) {
-                return@withLock
+                return@withLock null
             }
-            captureVideoFrame(previewSource)?.let { bitmap ->
-                onSavePreview(previewChannelUri, bitmap)
-            }
+            val bitmap = captureVideoFrame(previewSource) ?: return@withLock null
+            val frozenFrame = if (freezeFrame) bitmap.copy(Bitmap.Config.ARGB_8888, false) else null
+            onSavePreview(previewChannelUri, bitmap)
+            frozenFrame
         }
     }
 
@@ -98,9 +99,10 @@ fun PlayerScreen(
         }
     }
 
-    suspend fun prepareChannelChange() {
+    suspend fun prepareChannelChange(): Bitmap? {
         persistProgress()?.join()
-        captureAndSavePreview()
+        player.pause()
+        return captureAndSavePreview(freezeFrame = true)
     }
 
     LaunchedEffect(channelUri, state.videos) {

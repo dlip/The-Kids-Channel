@@ -82,22 +82,23 @@ fun PlayerScreen(
         )
     }
 
-    suspend fun captureAndSavePreview() {
-        val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString() ?: return
-        val previewChannelUri = channelUri ?: return
-        val previewSource = videoLayout ?: return
-        if (!hasRenderedFirstFrame) return
-        frameCaptureMutex.withLock {
+    suspend fun captureAndSavePreview(freezeFrame: Boolean = false): Bitmap? {
+        val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString() ?: return null
+        val previewChannelUri = channelUri ?: return null
+        val previewSource = videoLayout ?: return null
+        if (!hasRenderedFirstFrame) return null
+        return frameCaptureMutex.withLock {
             if (
                 channelUri != previewChannelUri ||
                 playlist.getOrNull(currentIndex)?.uri?.toString() != videoUri ||
                 !hasRenderedFirstFrame
             ) {
-                return@withLock
+                return@withLock null
             }
-            captureVideoFrame(previewSource)?.let { bitmap ->
-                onSavePreview(previewChannelUri, bitmap)
-            }
+            val bitmap = captureVideoFrame(previewSource) ?: return@withLock null
+            val frozenFrame = if (freezeFrame) bitmap.copy(Bitmap.Config.ARGB_8888, false) else null
+            onSavePreview(previewChannelUri, bitmap)
+            frozenFrame
         }
     }
 
@@ -108,9 +109,10 @@ fun PlayerScreen(
         }
     }
 
-    suspend fun prepareChannelChange() {
+    suspend fun prepareChannelChange(): Bitmap? {
         persistProgress()?.join()
-        captureAndSavePreview()
+        player.pause()
+        return captureAndSavePreview(freezeFrame = true)
     }
 
     fun attachVideoViews() {
