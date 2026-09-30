@@ -33,7 +33,7 @@ folders or saved playback positions.
 
 1. Open the app and tap **Add root folder**.
 2. Select a folder containing one subfolder for each channel.
-3. Tap the up and down arrows to change channels.
+3. Swipe up or down to change channels.
 
 For example:
 
@@ -54,10 +54,10 @@ number prefixes can be used to control their order.
 
 ## Controls
 
-- Tap the screen to show the controls. They fade away after five seconds.
-- Tap the pause button to pause or resume playback.
-- Hold the pause button for 5 seconds to open Settings.
-- Tap the up or down arrow to change channels.
+- Swipe up to move to the next channel and swipe down to move to the previous
+  channel. Channels wrap around at either end.
+- Tap anywhere to pause or resume playback.
+- While paused, hold the Paused label for five seconds to open Settings.
 
 Settings includes automatic audio normalization, enabled by default, to keep
 quiet and loud videos at a more consistent volume.

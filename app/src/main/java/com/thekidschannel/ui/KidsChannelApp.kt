@@ -70,8 +70,8 @@ fun KidsChannelApp(
         )
         else -> PlayerScreen(
             state = state,
-            onPreviousChannel = { viewModel.selectRelativeChannel(-1) },
-            onNextChannel = { viewModel.selectRelativeChannel(1) },
+            onSelectChannel = viewModel::selectChannel,
+            onChannelPreviewPath = viewModel::getPreviewPath,
             onSaveProgress = viewModel::saveProgress,
             onSavePreview = viewModel::savePreview,
             onSettings = { showSettings = true },

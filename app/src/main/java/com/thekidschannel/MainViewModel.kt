@@ -89,6 +89,8 @@ class MainViewModel(
         selectChannel(channels[nextIndex].uri)
     }
 
+    fun getPreviewPath(channelUri: String): String? = repository.getPreviewPath(channelUri)
+
     fun saveProgress(channelUri: String, videoUri: String?, videoIndex: Int, positionMs: Long): Job? {
         val channel = _uiState.value.channels.firstOrNull { it.uri == channelUri } ?: return null
         if (videoUri == null || videoIndex < 0) return null
@@ -134,7 +136,7 @@ class MainViewModel(
         _uiState.update { it.copy(normalizeAudio = enabled) }
     }
 
-    private fun selectChannel(uri: String) {
+    fun selectChannel(uri: String) {
         val channel = _uiState.value.channels.firstOrNull { it.uri == uri } ?: return
         selectChannel(channel)
     }
@@ -180,13 +182,14 @@ class MainViewModel(
                 savedVideoIndex = progress?.currentVideoIndex ?: 0,
                 savedPositionMs = progress?.positionMs ?: 0,
             )
-
             _uiState.update {
                 it.copy(
                     selectedChannel = channel,
                     videos = videos,
                     startVideoIndex = resumePoint.videoIndex,
                     startPositionMs = resumePoint.positionMs,
+                    previewPath = previewPath,
+                    previewUpdatedAt = previewPath?.let { path -> File(path).lastModified() } ?: 0,
                     isLoading = false,
                     message = if (videos.isEmpty()) {
                         "No playable videos in this channel"

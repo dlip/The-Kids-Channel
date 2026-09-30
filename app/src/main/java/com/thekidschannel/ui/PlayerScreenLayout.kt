@@ -1,48 +1,33 @@
 package com.thekidschannel.ui
 
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledIconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -50,34 +35,40 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.thekidschannel.MainUiState
+import com.thekidschannel.media.relativeChannelIndex
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.abs
 
-private data class PendingChannelChange(
-    val channelUri: String?,
-    val name: String,
-    val frozenFrame: Bitmap?,
+private data class SwipeTarget(
+    val uri: String,
     val direction: Int,
-)
-
-private data class ChannelSlide(
-    val previous: PendingChannelChange,
     val name: String,
     val preview: ImageBitmap?,
 )
@@ -87,26 +78,34 @@ internal fun PlayerScreenLayout(
     state: MainUiState,
     isPaused: Boolean,
     showPreview: Boolean,
+    playbackStarted: Boolean,
     onTogglePlayback: () -> Unit,
-    onVideoFrameVisible: suspend () -> Boolean,
-    onPrepareChannelChange: suspend () -> Bitmap?,
-    onPreviousChannel: () -> Unit,
-    onNextChannel: () -> Unit,
+    onPrepareChannelChange: suspend () -> Unit,
+    onSelectChannel: (String) -> Unit,
+    onChannelPreviewPath: suspend (String) -> String?,
     onSettings: () -> Unit,
     videoSurface: @Composable () -> Unit,
 ) {
     val channelUri = state.selectedChannel?.uri
-    var controlsVisible by remember { mutableStateOf(true) }
-    var controlsInteraction by remember { mutableIntStateOf(0) }
-    var settingsHoldActive by remember { mutableStateOf(false) }
+    var channelLabelVisible by remember { mutableStateOf(true) }
+    var labelInteraction by remember { mutableIntStateOf(0) }
+    var holdingForSettings by remember { mutableStateOf(false) }
+    var pausedPillBounds by remember { mutableStateOf<Rect?>(null) }
+    val holdProgress = remember { Animatable(0f) }
+    var blockPauseUntil by remember { mutableLongStateOf(0L) }
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
+    var swipeResetJob by remember { mutableStateOf<Job?>(null) }
+    var swipeTarget by remember { mutableStateOf<SwipeTarget?>(null) }
+    var adjacentPreviews by remember(channelUri) {
+        mutableStateOf<Map<String, ImageBitmap>>(emptyMap())
+    }
     var channelChangeInProgress by remember { mutableStateOf(false) }
-    var pendingChannelChange by remember { mutableStateOf<PendingChannelChange?>(null) }
-    var channelSlide by remember { mutableStateOf<ChannelSlide?>(null) }
+    var channelChangeGeneration by remember { mutableIntStateOf(0) }
+    var pendingChannelUri by remember { mutableStateOf<String?>(null) }
+    var channelSlide by remember { mutableStateOf<SwipeTarget?>(null) }
     var keepPreviewVisible by remember(channelUri) { mutableStateOf(true) }
-    val slideProgress = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
-    val previewVisible = state.isLoading || showPreview ||
-        (keepPreviewVisible && state.previewPath != null)
+    val currentChannelPreviewPath by rememberUpdatedState(onChannelPreviewPath)
     val preview = remember(
         state.previewPath,
         state.previewUpdatedAt,
@@ -115,129 +114,208 @@ internal fun PlayerScreenLayout(
             ?.let(BitmapFactory::decodeFile)
             ?.asImageBitmap()
     }
+    val previewVisible = state.isLoading ||
+        (keepPreviewVisible && (showPreview || preview != null))
 
-    LaunchedEffect(channelUri, showPreview) {
-        if (showPreview) {
-            keepPreviewVisible = true
-        } else {
-            var visibleFrames = 0
-            repeat(MAX_PREVIEW_FRAME_CHECKS) {
-                delay(50)
-                visibleFrames = if (onVideoFrameVisible()) visibleFrames + 1 else 0
-                if (visibleFrames >= 2) {
-                    keepPreviewVisible = false
-                    return@LaunchedEffect
-                }
-            }
-            keepPreviewVisible = false
+    LaunchedEffect(
+        channelUri,
+        state.previewPath,
+        state.previewUpdatedAt,
+    ) {
+        val image = preview ?: return@LaunchedEffect
+        val currentUri = channelUri ?: return@LaunchedEffect
+        adjacentPreviews = adjacentPreviews + (currentUri to image)
+        if (swipeTarget?.uri == currentUri) {
+            swipeTarget = swipeTarget?.copy(preview = image)
+        }
+        if (channelSlide?.uri == currentUri) {
+            channelSlide = channelSlide?.copy(preview = image)
         }
     }
 
-    fun showControls() {
-        controlsVisible = true
-        controlsInteraction++
+    suspend fun loadAdjacentPreview(previewChannelUri: String) {
+        val image = currentChannelPreviewPath(previewChannelUri)?.let { path ->
+            withContext(Dispatchers.IO) { BitmapFactory.decodeFile(path)?.asImageBitmap() }
+        } ?: return
+        adjacentPreviews = adjacentPreviews + (previewChannelUri to image)
+        if (swipeTarget?.uri == previewChannelUri) {
+            swipeTarget = swipeTarget?.copy(preview = image)
+        }
+        if (channelSlide?.uri == previewChannelUri) {
+            channelSlide = channelSlide?.copy(preview = image)
+        }
     }
 
-    fun changeChannel(direction: Int, change: () -> Unit) {
+    LaunchedEffect(channelUri, state.channels) {
+        val neighbors = listOf(-1, 1).mapNotNull { direction ->
+            relativeChannelIndex(
+                channelUris = state.channels.map { it.uri },
+                currentChannelUri = channelUri,
+                offset = direction,
+            )?.let(state.channels::get)
+        }.distinctBy { it.uri }.filter { it.uri != channelUri }
+        neighbors.forEach { channel -> loadAdjacentPreview(channel.uri) }
+    }
+
+    LaunchedEffect(channelUri, state.isLoading, showPreview, playbackStarted) {
+        if (state.isLoading) {
+            keepPreviewVisible = true
+            return@LaunchedEffect
+        }
+        // Once this channel is visible, a later video in its playlist must not
+        // bring the channel-entry preview back over the playing video.
+        if (!showPreview && playbackStarted) keepPreviewVisible = false
+    }
+
+    fun showChannelLabel() {
+        channelLabelVisible = true
+        labelInteraction++
+    }
+
+    fun targetForOffset(offset: Int, animationDirection: Int): SwipeTarget? {
+        if (state.channels.size < 2) return null
+        val index = relativeChannelIndex(
+            channelUris = state.channels.map { it.uri },
+            currentChannelUri = channelUri,
+            offset = offset,
+        ) ?: return null
+        val channel = state.channels[index]
+        return SwipeTarget(
+            uri = channel.uri,
+            direction = animationDirection,
+            name = channel.name,
+            preview = adjacentPreviews[channel.uri],
+        )
+    }
+
+    fun changeChannel(target: SwipeTarget, heightPx: Float) {
         if (channelChangeInProgress) return
         channelChangeInProgress = true
+        channelChangeGeneration += 1
+        val transitionGeneration = channelChangeGeneration
         coroutineScope.launch {
             try {
-                val frozenFrame = onPrepareChannelChange()
-                if (state.channels.size > 1) {
-                    slideProgress.snapTo(0f)
-                    val pending = PendingChannelChange(
-                        channelUri = channelUri,
-                        name = state.selectedChannel?.name.orEmpty(),
-                        frozenFrame = frozenFrame,
-                        direction = direction,
-                    )
-                    pendingChannelChange = pending
-                    channelSlide = ChannelSlide(pending, name = "", preview = null)
-                } else {
-                    frozenFrame?.recycle()
+                val destination = if (target.direction > 0) -1f else 1f
+                val startOffset = swipeOffset
+                if (swipeTarget?.uri != target.uri) swipeTarget = target
+                Animatable(startOffset).animateTo(
+                    targetValue = destination * heightPx,
+                    animationSpec = tween(durationMillis = CHANNEL_SLIDE_MS,
+                        easing = FastOutSlowInEasing),
+                ) { swipeOffset = value }
+                withTimeoutOrNull(CHANNEL_PREPARE_TIMEOUT_MS) {
+                    onPrepareChannelChange()
                 }
-                change()
-                if (pendingChannelChange == null) channelChangeInProgress = false
+                pendingChannelUri = target.uri
+                channelSlide = swipeTarget?.takeIf { it.uri == target.uri } ?: target
+                swipeOffset = 0f
+                swipeTarget = null
+                onSelectChannel(target.uri)
+                delay(CHANNEL_CHANGE_WATCHDOG_MS)
+                if (channelChangeGeneration == transitionGeneration &&
+                    pendingChannelUri == target.uri
+                ) {
+                    channelSlide = null
+                    pendingChannelUri = null
+                    channelChangeInProgress = false
+                }
             } catch (error: Throwable) {
-                pendingChannelChange?.frozenFrame?.recycle()
-                channelSlide = null
-                pendingChannelChange = null
-                channelChangeInProgress = false
+                if (channelChangeGeneration == transitionGeneration) {
+                    channelSlide = null
+                    pendingChannelUri = null
+                    channelChangeInProgress = false
+                    swipeOffset = 0f
+                    swipeTarget = null
+                }
                 throw error
             }
         }
     }
 
-    LaunchedEffect(channelUri) {
-        val pending = pendingChannelChange ?: return@LaunchedEffect
-        if (pending.channelUri == channelUri) return@LaunchedEffect
-        try {
-            channelSlide = ChannelSlide(
-                previous = pending,
-                name = state.selectedChannel?.name.orEmpty(),
-                preview = state.previewPath
-                    ?.let(BitmapFactory::decodeFile)
-                    ?.asImageBitmap(),
-            )
-            slideProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 420,
-                    easing = FastOutSlowInEasing,
-                ),
-            )
-        } finally {
-            if (channelSlide == null) pending.frozenFrame?.recycle()
+    LaunchedEffect(channelUri, state.isLoading, keepPreviewVisible, state.message) {
+        if (pendingChannelUri != null &&
+            !state.isLoading &&
+            (channelUri != pendingChannelUri || state.message != null)
+        ) {
             channelSlide = null
-            pendingChannelChange = null
+            pendingChannelUri = null
             channelChangeInProgress = false
+        } else if (pendingChannelUri == channelUri && !state.isLoading) {
+            // The channel is ready for input even if its first video frame is still arriving.
+            channelChangeInProgress = false
+            if (!keepPreviewVisible) {
+                channelSlide = null
+                pendingChannelUri = null
+            }
         }
     }
 
-    LaunchedEffect(channelUri, controlsInteraction, settingsHoldActive) {
-        controlsVisible = true
-        if (!settingsHoldActive) {
+    LaunchedEffect(channelUri, labelInteraction, holdingForSettings) {
+        channelLabelVisible = true
+        if (!holdingForSettings) {
             delay(5_000)
-            controlsVisible = false
+            channelLabelVisible = false
         }
     }
 
-    Box(
+    val currentTogglePlayback by rememberUpdatedState(onTogglePlayback)
+    val currentSettings by rememberUpdatedState(onSettings)
+    // Fresh lambdas keep gesture callbacks tied to the newly selected channel.
+    val currentSwipeTarget by rememberUpdatedState<(Int, Int) -> SwipeTarget?>(
+        newValue = { offset, direction -> targetForOffset(offset, direction) },
+    )
+    val currentChangeChannel by rememberUpdatedState<(SwipeTarget, Float) -> Unit>(
+        newValue = { target, height -> changeChannel(target, height) },
+    )
+    val currentShowChannelLabel by rememberUpdatedState<() -> Unit>(
+        newValue = { showChannelLabel() },
+    )
+
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
+            .clipToBounds()
             .background(Color.Black),
     ) {
-        videoSurface()
-
-        AnimatedVisibility(
-            visible = previewVisible,
-            enter = EnterTransition.None,
-            exit = fadeOut(tween(durationMillis = PREVIEW_FADE_OUT_MS)),
+        val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { translationY = swipeOffset },
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
+            videoSurface()
+
+            AnimatedVisibility(
+                visible = previewVisible,
+                enter = EnterTransition.None,
+                exit = fadeOut(tween(durationMillis = PREVIEW_FADE_OUT_MS)),
             ) {
-                preview?.let { image ->
-                    Image(
-                        bitmap = image,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                ) {
+                    preview?.let { image ->
+                        Image(
+                            bitmap = image,
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures { showControls() }
+        swipeTarget?.let { target ->
+            ChannelSlidePanel(
+                name = target.name,
+                preview = target.preview,
+                modifier = Modifier.graphicsLayer {
+                    translationY = swipeOffset + target.direction * heightPx
                 },
-        )
+            )
+        }
 
         if (state.isLoading) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -250,117 +328,231 @@ internal fun PlayerScreenLayout(
         }
 
         channelSlide?.let { slide ->
-            ChannelSlideOverlay(slide) { slideProgress.value }
+            ChannelSlidePanel(
+                name = slide.name,
+                preview = slide.preview,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
 
         AnimatedVisibility(
-            visible = controlsVisible,
+            visible = channelLabelVisible,
             enter = fadeIn(tween(durationMillis = 200)),
             exit = fadeOut(tween(durationMillis = 500)),
         ) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Text(
+                text = state.selectedChannel?.name.orEmpty(),
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(20.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
+
+        if (isPaused && !channelChangeInProgress && swipeTarget == null) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .onGloballyPositioned { pausedPillBounds = it.boundsInParent() },
+            ) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .drawBehind {
+                            drawRect(
+                                color = Color.Red,
+                                size = Size(
+                                    size.width * if (holdingForSettings) holdProgress.value else 0f,
+                                    size.height,
+                                ),
+                            )
+                        },
+                )
                 Text(
-                    text = state.selectedChannel?.name.orEmpty(),
+                    text = "Paused",
                     color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(20.dp)
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                 )
+            }
+        }
 
-                PlaybackSettingsButton(
-                    isPaused = isPaused,
-                    onClick = {
-                        showControls()
-                        onTogglePlayback()
-                    },
-                    onHoldingChanged = { isHolding ->
-                        settingsHoldActive = isHolding
-                        if (isHolding) showControls()
-                    },
-                    onHoldComplete = onSettings,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(16.dp)
-                        .size(52.dp),
-                )
-
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .fillMaxHeight()
-                        .padding(end = 16.dp, top = 88.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    ChannelButton(
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowUp,
-                                contentDescription = "Previous channel",
-                                modifier = Modifier.size(48.dp),
-                            )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .semantics {
+                    contentDescription = "Tap to pause or resume. Swipe up or down to change " +
+                        "channels. Hold the Paused label for settings."
+                    onClick(label = if (isPaused) "Resume video" else "Pause video") {
+                        if (!channelChangeInProgress && swipeTarget == null &&
+                            swipeResetJob?.isActive != true &&
+                            SystemClock.uptimeMillis() >= blockPauseUntil
+                        ) currentTogglePlayback()
+                        true
+                    }
+                    customActions = listOf(
+                        CustomAccessibilityAction("Next channel") {
+                            currentSwipeTarget(1, 1)?.let {
+                                currentChangeChannel(it, heightPx)
+                            }
+                            true
                         },
-                        onClick = {
-                            showControls()
-                            changeChannel(-1, onPreviousChannel)
+                        CustomAccessibilityAction("Previous channel") {
+                            currentSwipeTarget(-1, -1)?.let {
+                                currentChangeChannel(it, heightPx)
+                            }
+                            true
                         },
-                    )
-                    ChannelButton(
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Next channel",
-                                modifier = Modifier.size(48.dp),
-                            )
-                        },
-                        onClick = {
-                            showControls()
-                            changeChannel(1, onNextChannel)
+                        CustomAccessibilityAction("Open settings") {
+                            currentSettings()
+                            true
                         },
                     )
                 }
-            }
-        }
+                .pointerInput(channelUri, state.channels, state.isLoading, isPaused) {
+                    try {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            swipeResetJob?.cancel()
+                            if (!channelChangeInProgress) {
+                                swipeOffset = 0f
+                                swipeTarget = null
+                            }
+                            down.consume()
+                            val holdOnPausedPill = isPaused &&
+                                pausedPillBounds?.contains(down.position) == true &&
+                                !channelChangeInProgress &&
+                                SystemClock.uptimeMillis() >= blockPauseUntil
+                            var holdCompleted = false
+                            val holdJob = if (holdOnPausedPill) coroutineScope.launch {
+                                holdProgress.snapTo(0f)
+                                holdingForSettings = true
+                                holdProgress.animateTo(
+                                    targetValue = 1f,
+                                    animationSpec = tween(
+                                        durationMillis = SETTINGS_HOLD_MS,
+                                        easing = LinearEasing,
+                                    ),
+                                )
+                                holdCompleted = true
+                                currentSettings()
+                            } else null
+                            var totalX = 0f
+                            var totalY = 0f
+                            var moved = false
+                            var target: SwipeTarget? = null
+                            var released = false
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                        ?: break
+                                    totalX = change.position.x - down.position.x
+                                    totalY = change.position.y - down.position.y
+                                    if (!moved &&
+                                        (abs(totalX) > viewConfiguration.touchSlop ||
+                                            abs(totalY) > viewConfiguration.touchSlop)
+                                    ) {
+                                        moved = true
+                                        blockPauseUntil = SystemClock.uptimeMillis() +
+                                            POST_SWIPE_PAUSE_BLOCK_MS
+                                        holdJob?.cancel()
+                                        holdingForSettings = false
+                                        if (abs(totalY) > abs(totalX) &&
+                                            !channelChangeInProgress && !state.isLoading
+                                        ) {
+                                            val channelOffset = if (totalY < 0) 1 else -1
+                                            val animationDirection = channelOffset
+                                            target = currentSwipeTarget(
+                                                channelOffset,
+                                                animationDirection,
+                                            )
+                                            if (target != null) {
+                                                channelSlide = null
+                                                pendingChannelUri = null
+                                            }
+                                            swipeTarget = target
+                                            if (target?.preview == null) {
+                                                target?.uri?.let { previewChannelUri ->
+                                                    coroutineScope.launch {
+                                                        loadAdjacentPreview(previewChannelUri)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (target != null) {
+                                        val offset = if (target.direction > 0) {
+                                            totalY.coerceIn(-size.height.toFloat(), 0f)
+                                        } else {
+                                            totalY.coerceIn(0f, size.height.toFloat())
+                                        }
+                                        swipeOffset = offset
+                                        change.consume()
+                                    }
+                                    if (!change.pressed) {
+                                        released = true
+                                        break
+                                    }
+                                }
+                            } finally {
+                                holdJob?.cancel()
+                                holdingForSettings = false
+                            }
+                            if (released && target != null) {
+                                val threshold = size.height * CHANNEL_CHANGE_THRESHOLD
+                                if (abs(swipeOffset) >= threshold) {
+                                    currentChangeChannel(target, size.height.toFloat())
+                                } else {
+                                    swipeResetJob = coroutineScope.launch {
+                                        Animatable(swipeOffset).animateTo(
+                                            0f,
+                                            tween(durationMillis = 180),
+                                        ) { swipeOffset = value }
+                                        swipeTarget = null
+                                        blockPauseUntil = SystemClock.uptimeMillis() +
+                                            POST_SWIPE_PAUSE_BLOCK_MS
+                                    }
+                                }
+                            } else if (released && !moved && !holdCompleted &&
+                                !channelChangeInProgress &&
+                                swipeResetJob?.isActive != true &&
+                                SystemClock.uptimeMillis() >= blockPauseUntil &&
+                                eventTimeIsTap(down.uptimeMillis, SystemClock.uptimeMillis())
+                            ) {
+                                currentTogglePlayback()
+                                currentShowChannelLabel()
+                            } else if (!released && target != null) {
+                                swipeOffset = 0f
+                                swipeTarget = null
+                            }
+                        }
+                    } finally {
+                        swipeResetJob?.cancel()
+                        swipeOffset = 0f
+                        swipeTarget = null
+                        holdingForSettings = false
+                    }
+                },
+        )
     }
 }
 
-private const val MAX_PREVIEW_FRAME_CHECKS = 40
+private const val CHANNEL_PREPARE_TIMEOUT_MS = 1_000L
+private const val CHANNEL_CHANGE_WATCHDOG_MS = 5_000L
+private const val CHANNEL_SLIDE_MS = 420
+private const val CHANNEL_CHANGE_THRESHOLD = 0.2f
 private const val PREVIEW_FADE_OUT_MS = 100
+private const val SETTINGS_HOLD_MS = 5_000
+private const val POST_SWIPE_PAUSE_BLOCK_MS = 300L
 
-@Composable
-private fun ChannelSlideOverlay(slide: ChannelSlide, progress: () -> Float) {
-    DisposableEffect(slide.previous.frozenFrame) {
-        onDispose {
-            slide.previous.frozenFrame?.let { frame ->
-                if (!frame.isRecycled) frame.recycle()
-            }
-        }
-    }
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .clipToBounds(),
-    ) {
-        val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
-        val direction = slide.previous.direction
-        ChannelSlidePanel(
-            name = slide.previous.name,
-            preview = slide.previous.frozenFrame?.asImageBitmap(),
-            modifier = Modifier.graphicsLayer {
-                translationY = -direction * progress() * heightPx
-            },
-        )
-        ChannelSlidePanel(
-            name = slide.name,
-            preview = slide.preview,
-            modifier = Modifier.graphicsLayer {
-                translationY = direction * (1f - progress()) * heightPx
-            },
-        )
-    }
-}
+private fun eventTimeIsTap(downTime: Long, upTime: Long): Boolean =
+    upTime - downTime <= 500L
 
 @Composable
 private fun ChannelSlidePanel(name: String, preview: ImageBitmap?, modifier: Modifier) {
@@ -385,105 +577,4 @@ private fun ChannelSlidePanel(name: String, preview: ImageBitmap?, modifier: Mod
             )
         }
     }
-}
-
-@Composable
-private fun PlaybackSettingsButton(
-    isPaused: Boolean,
-    onClick: () -> Unit,
-    onHoldingChanged: (Boolean) -> Unit,
-    onHoldComplete: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val progress = remember { Animatable(0f) }
-    val currentOnClick by rememberUpdatedState(onClick)
-    val currentOnHoldingChanged by rememberUpdatedState(onHoldingChanged)
-    val currentOnHoldComplete by rememberUpdatedState(onHoldComplete)
-    var isHolding by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isHolding) {
-        progress.snapTo(0f)
-        if (isHolding) {
-            delay(500)
-            progress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 4_500,
-                    easing = LinearEasing,
-                ),
-            )
-            currentOnHoldComplete()
-        }
-    }
-
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.55f))
-                .semantics {
-                    contentDescription = if (isPaused) {
-                        "Resume video. Hold for settings"
-                    } else {
-                        "Pause video. Hold for settings"
-                    }
-                    role = Role.Button
-                }
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(
-                            requireUnconsumed = false,
-                            pass = PointerEventPass.Initial,
-                        )
-                        down.consume()
-                        isHolding = true
-                        currentOnHoldingChanged(true)
-                        var holdCompleted = false
-                        try {
-                            do {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                            } while (event.changes.any { it.pressed })
-                            holdCompleted = progress.value >= 1f
-                        } finally {
-                            isHolding = false
-                            currentOnHoldingChanged(false)
-                        }
-                        if (!holdCompleted) currentOnClick()
-                    }
-                },
-        )
-        Canvas(modifier = Modifier.requiredSize(104.dp)) {
-            drawArc(
-                color = Color.Red.copy(alpha = 0.85f),
-                startAngle = 180f,
-                sweepAngle = progress.value * 360f,
-                useCenter = true,
-            )
-        }
-        Icon(
-            imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-            contentDescription = null,
-            tint = Color.White,
-        )
-    }
-}
-
-@Composable
-private fun ChannelButton(
-    icon: @Composable () -> Unit,
-    onClick: () -> Unit,
-) {
-    FilledIconButton(
-        onClick = onClick,
-        modifier = Modifier.size(72.dp),
-        colors = IconButtonDefaults.filledIconButtonColors(
-            containerColor = Color.Black.copy(alpha = 0.55f),
-            contentColor = Color.White,
-        ),
-        content = icon,
-    )
 }

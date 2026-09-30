@@ -35,8 +35,8 @@ import kotlinx.coroutines.sync.withLock
 @Composable
 fun PlayerScreen(
     state: MainUiState,
-    onPreviousChannel: () -> Unit,
-    onNextChannel: () -> Unit,
+    onSelectChannel: (String) -> Unit,
+    onChannelPreviewPath: suspend (String) -> String?,
     onSaveProgress: (String, String?, Int, Long) -> Job?,
     onSavePreview: (String, Bitmap) -> Unit,
     onSettings: () -> Unit,
@@ -58,6 +58,7 @@ fun PlayerScreen(
     var playerView by remember { mutableStateOf<PlayerView?>(null) }
     val frameCaptureMutex = remember { Mutex() }
     var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
+    var playbackStarted by remember(channelUri) { mutableStateOf(false) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember { mutableStateOf(false) }
     var playingChannelUri by remember { mutableStateOf<String?>(null) }
@@ -72,23 +73,23 @@ fun PlayerScreen(
         )
     }
 
-    suspend fun captureAndSavePreview(freezeFrame: Boolean = false): Bitmap? {
-        val videoUri = player.currentMediaItem?.mediaId ?: return null
-        val previewChannelUri = channelUri ?: return null
-        val previewSource = playerView ?: return null
-        if (!hasRenderedFirstFrame) return null
-        return frameCaptureMutex.withLock {
+    suspend fun captureAndSavePreview() {
+        val videoUri = player.currentMediaItem?.mediaId ?: return
+        val previewChannelUri = playingChannelUri ?: return
+        if (channelUri != previewChannelUri) return
+        val previewSource = playerView ?: return
+        if (!hasRenderedFirstFrame) return
+        frameCaptureMutex.withLock {
             if (
                 channelUri != previewChannelUri ||
+                playingChannelUri != previewChannelUri ||
                 player.currentMediaItem?.mediaId != videoUri ||
                 !hasRenderedFirstFrame
             ) {
-                return@withLock null
+                return@withLock
             }
-            val bitmap = captureVideoFrame(previewSource) ?: return@withLock null
-            val frozenFrame = if (freezeFrame) bitmap.copy(Bitmap.Config.ARGB_8888, false) else null
+            val bitmap = captureVideoFrame(previewSource) ?: return@withLock
             onSavePreview(previewChannelUri, bitmap)
-            frozenFrame
         }
     }
 
@@ -99,10 +100,10 @@ fun PlayerScreen(
         }
     }
 
-    suspend fun prepareChannelChange(): Bitmap? {
+    suspend fun prepareChannelChange() {
         persistProgress()?.join()
         player.pause()
-        return captureAndSavePreview(freezeFrame = true)
+        captureAndSavePreview()
     }
 
     LaunchedEffect(channelUri, state.videos) {
@@ -141,6 +142,10 @@ fun PlayerScreen(
                 hasRenderedFirstFrame = true
             }
 
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) playbackStarted = true
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 val failedIndex = player.currentMediaItemIndex
                 failedItems = failedItems + failedIndex
@@ -160,6 +165,14 @@ fun PlayerScreen(
         onDispose {
             player.removeListener(listener)
         }
+    }
+
+    LaunchedEffect(
+        channelUri,
+        player.currentMediaItem?.mediaId,
+        hasRenderedFirstFrame,
+    ) {
+        if (hasRenderedFirstFrame) captureAndSavePreview()
     }
 
     DisposableEffect(lifecycleOwner, channelUri) {
@@ -198,17 +211,13 @@ fun PlayerScreen(
         state = state,
         isPaused = isPaused,
         showPreview = !hasRenderedFirstFrame,
+        playbackStarted = playbackStarted,
         onTogglePlayback = {
             if (player.playWhenReady) player.pause() else player.play()
         },
-        onVideoFrameVisible = {
-            frameCaptureMutex.withLock {
-                playerView?.let { hasVisibleVideoFrame(it) } ?: false
-            }
-        },
         onPrepareChannelChange = ::prepareChannelChange,
-        onPreviousChannel = onPreviousChannel,
-        onNextChannel = onNextChannel,
+        onSelectChannel = onSelectChannel,
+        onChannelPreviewPath = onChannelPreviewPath,
         onSettings = onSettings,
         videoSurface = {
             AndroidView(

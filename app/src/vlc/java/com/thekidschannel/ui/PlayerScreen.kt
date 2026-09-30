@@ -38,8 +38,8 @@ import org.videolan.libvlc.util.VLCVideoLayout
 @Composable
 fun PlayerScreen(
     state: MainUiState,
-    onPreviousChannel: () -> Unit,
-    onNextChannel: () -> Unit,
+    onSelectChannel: (String) -> Unit,
+    onChannelPreviewPath: suspend (String) -> String?,
     onSaveProgress: (String, String?, Int, Long) -> Job?,
     onSavePreview: (String, Bitmap) -> Unit,
     onSettings: () -> Unit,
@@ -61,6 +61,7 @@ fun PlayerScreen(
     val channelUri = state.selectedChannel?.uri
     var hasVideoOutput by remember(channelUri) { mutableStateOf(false) }
     var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
+    var playbackStarted by remember(channelUri) { mutableStateOf(false) }
     var playlist by remember { mutableStateOf(emptyList<VideoItem>()) }
     var currentIndex by remember { mutableIntStateOf(0) }
     var pendingStartPositionMs by remember { mutableLongStateOf(0) }
@@ -82,23 +83,23 @@ fun PlayerScreen(
         )
     }
 
-    suspend fun captureAndSavePreview(freezeFrame: Boolean = false): Bitmap? {
-        val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString() ?: return null
-        val previewChannelUri = channelUri ?: return null
-        val previewSource = videoLayout ?: return null
-        if (!hasRenderedFirstFrame) return null
-        return frameCaptureMutex.withLock {
+    suspend fun captureAndSavePreview() {
+        val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString() ?: return
+        val previewChannelUri = playingChannelUri ?: return
+        if (channelUri != previewChannelUri) return
+        val previewSource = videoLayout ?: return
+        if (!hasRenderedFirstFrame) return
+        frameCaptureMutex.withLock {
             if (
                 channelUri != previewChannelUri ||
+                playingChannelUri != previewChannelUri ||
                 playlist.getOrNull(currentIndex)?.uri?.toString() != videoUri ||
                 !hasRenderedFirstFrame
             ) {
-                return@withLock null
+                return@withLock
             }
-            val bitmap = captureVideoFrame(previewSource) ?: return@withLock null
-            val frozenFrame = if (freezeFrame) bitmap.copy(Bitmap.Config.ARGB_8888, false) else null
+            val bitmap = captureVideoFrame(previewSource) ?: return@withLock
             onSavePreview(previewChannelUri, bitmap)
-            frozenFrame
         }
     }
 
@@ -109,10 +110,10 @@ fun PlayerScreen(
         }
     }
 
-    suspend fun prepareChannelChange(): Bitmap? {
+    suspend fun prepareChannelChange() {
         persistProgress()?.join()
         player.pause()
-        return captureAndSavePreview(freezeFrame = true)
+        captureAndSavePreview()
     }
 
     fun attachVideoViews() {
@@ -144,6 +145,7 @@ fun PlayerScreen(
         lastProgressPositionMs = positionMs.coerceAtLeast(0)
         hasVideoOutput = false
         hasRenderedFirstFrame = false
+        playbackStarted = false
         revealPreviewAfterMs = SystemClock.uptimeMillis() + MINIMUM_PREVIEW_TIME_MS
         pendingStartPositionMs = positionMs.coerceAtLeast(0)
         openFileDescriptor?.close()
@@ -193,12 +195,33 @@ fun PlayerScreen(
         onPlaybackMessage(null)
     }
 
+    LaunchedEffect(channelUri, hasVideoOutput, playbackStarted) {
+        if (!hasVideoOutput || !playbackStarted || hasRenderedFirstFrame) {
+            return@LaunchedEffect
+        }
+        val remainingMinimumPreviewTime =
+            (revealPreviewAfterMs - SystemClock.uptimeMillis()).coerceAtLeast(0L)
+        delay(remainingMinimumPreviewTime + VLC_FIRST_FRAME_FALLBACK_MS)
+        if (hasVideoOutput && playbackStarted && !hasRenderedFirstFrame) {
+            hasRenderedFirstFrame = true
+        }
+    }
+
+    LaunchedEffect(
+        channelUri,
+        playlist.getOrNull(currentIndex)?.uri?.toString(),
+        hasRenderedFirstFrame,
+    ) {
+        if (hasRenderedFirstFrame) captureAndSavePreview()
+    }
+
     DisposableEffect(player, channelUri) {
         player.setEventListener { event ->
             mainHandler.post {
                 when (event.type) {
                     MediaPlayer.Event.Playing -> {
                         isPaused = false
+                        playbackStarted = true
                         applyPendingStartPosition()
                     }
                     MediaPlayer.Event.SeekableChanged -> applyPendingStartPosition()
@@ -274,17 +297,13 @@ fun PlayerScreen(
         state = state,
         isPaused = isPaused,
         showPreview = !hasRenderedFirstFrame,
+        playbackStarted = playbackStarted,
         onTogglePlayback = {
             if (player.isPlaying) player.pause() else player.play()
         },
-        onVideoFrameVisible = {
-            frameCaptureMutex.withLock {
-                videoLayout?.let { hasVisibleVideoFrame(it) } ?: false
-            }
-        },
         onPrepareChannelChange = ::prepareChannelChange,
-        onPreviousChannel = onPreviousChannel,
-        onNextChannel = onNextChannel,
+        onSelectChannel = onSelectChannel,
+        onChannelPreviewPath = onChannelPreviewPath,
         onSettings = onSettings,
         videoSurface = {
             AndroidView(
@@ -306,6 +325,7 @@ fun PlayerScreen(
 }
 
 private const val MINIMUM_PREVIEW_TIME_MS = 250L
+private const val VLC_FIRST_FRAME_FALLBACK_MS = 500L
 
 internal fun vlcAudioNormalizationOptions(enabled: Boolean): MutableList<String> =
     if (enabled) {

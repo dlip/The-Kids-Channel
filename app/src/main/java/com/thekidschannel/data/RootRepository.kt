@@ -52,7 +52,12 @@ class RootRepository(
         val channelUris = progressDao.getChannelUrisForRoot(uri)
         progressDao.deleteForRoot(uri)
         withContext(Dispatchers.IO) {
-            channelUris.forEach { previewFile(it).delete() }
+            channelUris.forEach { channelUri ->
+                channelPreviewDirectory(channelUri).deleteRecursively()
+                previewFile(channelUri).delete()
+                File(File(context.filesDir, LEGACY_PREVIEW_DIRECTORY), "${hash(channelUri)}.jpg")
+                    .delete()
+            }
         }
         rootDao.delete(uri)
         runCatching {
@@ -113,16 +118,21 @@ class RootRepository(
             destination.absolutePath
         }
 
-    private fun previewFile(channelUri: String): File {
-        val name = MessageDigest.getInstance("SHA-256")
-            .digest(channelUri.toByteArray(Charsets.UTF_8))
+    private fun previewFile(channelUri: String): File =
+        File(File(context.filesDir, PREVIEW_DIRECTORY), "${hash(channelUri)}.jpg")
+
+    private fun channelPreviewDirectory(channelUri: String): File =
+        File(File(context.filesDir, PREVIEW_DIRECTORY), hash(channelUri))
+
+    private fun hash(value: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
             .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
-        return File(File(context.filesDir, PREVIEW_DIRECTORY), "$name.jpg")
-    }
 
     private companion object {
         const val SELECTED_CHANNEL_KEY = "selected_channel_uri"
         const val NORMALIZE_AUDIO_KEY = "normalize_audio"
-        const val PREVIEW_DIRECTORY = "channel-previews"
+        const val PREVIEW_DIRECTORY = "channel-previews-v2"
+        const val LEGACY_PREVIEW_DIRECTORY = "channel-previews"
     }
 }

@@ -1,7 +1,6 @@
 package com.thekidschannel.ui
 
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
@@ -40,25 +39,6 @@ internal suspend fun captureVideoFrame(container: View): Bitmap? =
             }
         }
     }
-
-internal suspend fun hasVisibleVideoFrame(container: View): Boolean {
-    val frame = captureVideoFrame(container) ?: return false
-    return try {
-        val stepX = (frame.width / 8).coerceAtLeast(1)
-        val stepY = (frame.height / 8).coerceAtLeast(1)
-        for (y in stepY / 2 until frame.height step stepY) {
-            for (x in stepX / 2 until frame.width step stepX) {
-                val pixel = frame.getPixel(x, y)
-                if (Color.red(pixel) > 24 || Color.green(pixel) > 24 || Color.blue(pixel) > 24) {
-                    return true
-                }
-            }
-        }
-        false
-    } finally {
-        frame.recycle()
-    }
-}
 
 private suspend fun captureSurfaceView(source: SurfaceView, bitmap: Bitmap): Bitmap? {
     if (!source.holder.surface.isValid) {

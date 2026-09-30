@@ -4,6 +4,28 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-30
+
+### Added
+
+- Replaced playback buttons with gestures: tap to pause or resume, swipe to
+  change channels, and hold the Paused label for five seconds to open Settings.
+- Added an interactive channel transition that follows the swipe and returns
+  to the current channel when less than 20 percent of the screen is crossed.
+
+### Changed
+
+- Kept the current video playing during a swipe and used one saved preview per
+  channel for the incoming channel.
+
+### Fixed
+
+- Corrected channel ordering and wraparound during repeated rapid swipes.
+- Prevented taps during a swipe from pausing playback.
+- Prevented stale previews and transition cleanup from covering or interrupting
+  the active video.
+- Kept playback visible when the next video starts within the same channel.
+
 ## [1.6.0] - 2026-09-30
 
 ### Added
