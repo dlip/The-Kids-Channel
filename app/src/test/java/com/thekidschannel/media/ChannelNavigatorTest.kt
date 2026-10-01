@@ -23,4 +23,20 @@ class ChannelNavigatorTest {
     fun returnsNullWhenThereAreNoChannels() {
         assertNull(relativeChannelIndex(emptyList(), null, 1))
     }
+
+    @Test
+    fun preparesBothNeighborsIncludingWraparound() {
+        assertEquals(listOf("stories", "songs"), neighborChannelUris(channels, "cartoons"))
+    }
+
+    @Test
+    fun preparesOnlyOnePlayerWhenBothNeighborsAreTheSameChannel() {
+        assertEquals(listOf("songs"), neighborChannelUris(listOf("cartoons", "songs"), "cartoons"))
+    }
+
+    @Test
+    fun doesNotPrepareAnExtraPlayerForASingleChannel() {
+        assertEquals(emptyList<String>(), neighborChannelUris(listOf("cartoons"), "cartoons"))
+        assertEquals(emptyList<String>(), neighborChannelUris(emptyList(), "cartoons"))
+    }
 }

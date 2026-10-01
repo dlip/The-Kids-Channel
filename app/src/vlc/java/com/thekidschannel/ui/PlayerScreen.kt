@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -48,12 +49,39 @@ fun PlayerScreen(
     onPlaybackMessage: (String?) -> Unit,
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val coroutineScope = rememberCoroutineScope()
-    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val libVlc = remember(state.normalizeAudio) {
         LibVLC(context, vlcAudioNormalizationOptions(state.normalizeAudio))
     }
+    DisposableEffect(libVlc) {
+        onDispose { libVlc.release() }
+    }
+    PreparedPlayerScreen(state, onSelectChannel, onChannelPreviewPath) { channelState, active ->
+        rememberChannelPlayer(
+            channelState, active, libVlc, onSaveProgress, onSavePreview,
+            onRecordWatchTime, onSettings, onPlaybackMessage,
+        )
+    }
+}
+
+@Composable
+private fun rememberChannelPlayer(
+    state: MainUiState,
+    active: Boolean,
+    libVlc: LibVLC,
+    onSaveProgress: (String, String?, Int, Long) -> Job?,
+    onSavePreview: (String, Bitmap) -> Unit,
+    onRecordWatchTime: (ChannelFolder, Long) -> Unit,
+    onSettings: () -> Unit,
+    onPlaybackMessage: (String?) -> Unit,
+): ChannelPlayerControls {
+    val isActive by rememberUpdatedState(active)
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
+    var foreground by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val player = remember(libVlc) {
         MediaPlayer(libVlc).apply {
             VlcAudioFilter.configure(this, state.normalizeAudio)
@@ -75,10 +103,12 @@ fun PlayerScreen(
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember(channelUri) { mutableStateOf(false) }
     var activelyPlaying by remember(channelUri) { mutableStateOf(false) }
+    var preparationFailed by remember { mutableStateOf(false) }
 
-    TrackWatchTime(state.selectedChannel, activelyPlaying, onRecordWatchTime)
+    TrackWatchTime(state.selectedChannel, active && activelyPlaying, onRecordWatchTime)
 
     fun persistProgress(): Job? {
+        if (!isActive) return null
         val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString()
         val positionMs = maxOf(lastProgressPositionMs, player.time.coerceAtLeast(0))
         lastProgressPositionMs = positionMs
@@ -91,6 +121,7 @@ fun PlayerScreen(
     }
 
     suspend fun captureAndSavePreview() {
+        if (!isActive) return
         val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString() ?: return
         val previewChannelUri = playingChannelUri ?: return
         if (channelUri != previewChannelUri) return
@@ -137,11 +168,13 @@ fun PlayerScreen(
             videoViewsAttached = true
             observeVlcVideoFrames(layout) {
                 if (
+                    videoViewsAttached &&
                     videoLayout === layout &&
                     playingChannelUri == channelUri &&
                     pendingStartPositionMs == 0L
                 ) {
                     hasRenderedFirstFrame = true
+                    if (!isActive || !foreground) player.pause()
                 }
             }
         }
@@ -156,12 +189,13 @@ fun PlayerScreen(
 
     fun playVideo(index: Int, positionMs: Long = 0) {
         activelyPlaying = false
+        preparationFailed = false
         val video = playlist.getOrNull(index) ?: return
         val fileDescriptor = runCatching {
             context.contentResolver.openAssetFileDescriptor(video.uri, "r")
         }.getOrNull()
         if (fileDescriptor == null) {
-            onPlaybackMessage("This video file could not be opened")
+            if (isActive) onPlaybackMessage("This video file could not be opened")
             return
         }
         currentIndex = index
@@ -174,10 +208,12 @@ fun PlayerScreen(
         openFileDescriptor = fileDescriptor
         val media = Media(libVlc, fileDescriptor).apply {
             setHWDecoderEnabled(true, false)
+            if (positionMs > 0) addOption(":start-time=${positionMs / 1000.0}")
         }
         player.media = media
         media.release()
-        player.play()
+        player.volume = if (isActive) 100 else 0
+        if (foreground) player.play()
         isPaused = false
     }
 
@@ -214,7 +250,7 @@ fun PlayerScreen(
             index = state.startVideoIndex.coerceIn(playlist.indices),
             positionMs = state.startPositionMs,
         )
-        onPlaybackMessage(null)
+        if (isActive) onPlaybackMessage(null)
     }
 
     LaunchedEffect(
@@ -225,6 +261,18 @@ fun PlayerScreen(
         if (hasRenderedFirstFrame) captureAndSavePreview()
     }
 
+    LaunchedEffect(player, active) {
+        player.volume = if (active) 100 else 0
+        if (active && foreground) {
+            isPaused = false
+            if (playlist.isNotEmpty()) {
+                if (preparationFailed) playVideo(currentIndex, lastProgressPositionMs) else player.play()
+            }
+        } else if (hasRenderedFirstFrame) {
+            player.pause()
+        }
+    }
+
     DisposableEffect(player, channelUri) {
         var listening = true
         player.setEventListener { event ->
@@ -232,18 +280,17 @@ fun PlayerScreen(
                 if (!listening || playingChannelUri != channelUri) return@post
                 when (event.type) {
                     MediaPlayer.Event.Playing -> {
-                        activelyPlaying = true
-                        isPaused = false
-                        playbackStarted = true
+                        activelyPlaying = isActive
+                        if (isActive) playbackStarted = true
                         applyPendingStartPosition()
+                        if (!foreground) player.pause()
                     }
                     MediaPlayer.Event.SeekableChanged -> applyPendingStartPosition()
                     MediaPlayer.Event.Paused -> {
-                        isPaused = true
                         activelyPlaying = false
                     }
                     MediaPlayer.Event.Buffering -> {
-                        activelyPlaying = event.buffering >= 100f && player.isPlaying
+                        activelyPlaying = isActive && event.buffering >= 100f && player.isPlaying
                     }
                     MediaPlayer.Event.Stopped -> activelyPlaying = false
                     MediaPlayer.Event.TimeChanged -> {
@@ -252,11 +299,15 @@ fun PlayerScreen(
                     MediaPlayer.Event.EndReached -> {
                         activelyPlaying = false
                         val nextIndex = (currentIndex + 1) % playlist.size.coerceAtLeast(1)
-                        playVideo(nextIndex)
+                        if (isActive) playVideo(nextIndex) else player.stop()
                     }
                     MediaPlayer.Event.EncounteredError -> {
                         activelyPlaying = false
-                        playNextAvailable(currentIndex)
+                        if (isActive) playNextAvailable(currentIndex) else {
+                            preparationFailed = true
+                            hasRenderedFirstFrame = false
+                            player.stop()
+                        }
                     }
                 }
             }
@@ -271,10 +322,14 @@ fun PlayerScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
+                    foreground = true
                     attachVideoViews()
-                    if (playlist.isNotEmpty() && resumePlaybackOnStart) player.play()
+                    if (playlist.isNotEmpty() &&
+                        ((isActive && resumePlaybackOnStart) || (!isActive && !hasRenderedFirstFrame))
+                    ) player.play()
                 }
                 Lifecycle.Event.ON_STOP -> {
+                    foreground = false
                     saveProgress()
                     resumePlaybackOnStart = !isPaused
                     player.pause()
@@ -304,22 +359,19 @@ fun PlayerScreen(
             detachVideoViews()
             player.release()
             openFileDescriptor?.close()
-            libVlc.release()
         }
     }
 
-    PlayerScreenLayout(
-        state = state,
-        isPaused = isPaused,
-        showPreview = !hasRenderedFirstFrame,
-        playbackStarted = playbackStarted,
-        onTogglePlayback = {
-            if (player.isPlaying) player.pause() else player.play()
+    return ChannelPlayerControls(
+        isPaused = { isPaused },
+        hasRenderedFirstFrame = { hasRenderedFirstFrame },
+        playbackStarted = { playbackStarted },
+        togglePlayback = {
+            isPaused = !isPaused
+            if (isPaused) player.pause() else player.play()
         },
-        onPrepareChannelChange = ::prepareChannelChange,
-        onSelectChannel = onSelectChannel,
-        onChannelPreviewPath = onChannelPreviewPath,
-        onSettings = {
+        prepareChannelChange = ::prepareChannelChange,
+        openSettings = {
             coroutineScope.launch {
                 persistProgress()?.join()
                 onSettings()

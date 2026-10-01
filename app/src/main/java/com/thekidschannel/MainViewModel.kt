@@ -11,6 +11,7 @@ import com.thekidschannel.data.RootRepository
 import com.thekidschannel.media.ChannelFolder
 import com.thekidschannel.media.ChannelScanner
 import com.thekidschannel.media.VideoItem
+import com.thekidschannel.media.neighborChannelUris
 import com.thekidschannel.media.relativeChannelIndex
 import com.thekidschannel.media.resolveResumePoint
 import kotlinx.coroutines.Job
@@ -26,12 +27,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 
+data class ChannelPlayback(
+    val videos: List<VideoItem>,
+    val startVideoIndex: Int,
+    val startPositionMs: Long,
+)
+
 data class MainUiState(
     val roots: List<RootEntity> = emptyList(),
     val channelStats: List<ChannelStatsEntity> = emptyList(),
     val channels: List<ChannelFolder> = emptyList(),
     val selectedChannel: ChannelFolder? = null,
     val videos: List<VideoItem> = emptyList(),
+    val preparedChannels: Map<String, ChannelPlayback> = emptyMap(),
     val startVideoIndex: Int = 0,
     val startPositionMs: Long = 0,
     val previewPath: String? = null,
@@ -72,6 +80,7 @@ class MainViewModel(
                     _uiState.update {
                         it.copy(
                             isLoading = roots.any { it.enabled },
+                            preparedChannels = emptyMap(),
                             message = null,
                         )
                     }
@@ -137,7 +146,14 @@ class MainViewModel(
                     videoIndex = videoIndex,
                     positionMs = positionMs,
                 )
-                _uiState.update { state ->
+                _uiState.update { previous ->
+                    val cached = previous.preparedChannels[channelUri]
+                    val state = if (cached != null) previous.copy(
+                        preparedChannels = previous.preparedChannels + (channelUri to cached.copy(
+                            startVideoIndex = videoIndex,
+                            startPositionMs = positionMs.coerceAtLeast(0),
+                        )),
+                    ) else previous
                     if (
                         state.selectedChannel?.uri == channelUri &&
                         state.videos.getOrNull(videoIndex)?.uri?.toString() == videoUri
@@ -225,43 +241,56 @@ class MainViewModel(
 
         repository.selectedChannelUri = channel.uri
         val previewPath = repository.getPreviewPath(channel.uri)
+        val cached = _uiState.value.preparedChannels[channel.uri]
         _uiState.update {
             it.copy(
                 selectedChannel = channel,
-                videos = emptyList(),
+                videos = cached?.videos.orEmpty(),
+                startVideoIndex = cached?.startVideoIndex ?: 0,
+                startPositionMs = cached?.startPositionMs ?: 0,
                 previewPath = previewPath,
                 previewUpdatedAt = previewPath?.let { path -> File(path).lastModified() } ?: 0,
-                isLoading = true,
-                message = null,
+                isLoading = cached == null,
+                message = if (cached?.videos?.isEmpty() == true) "No playable videos in this channel" else null,
             )
         }
         channelLoadJob = viewModelScope.launch {
-            val progress = repository.getProgress(channel.uri)
-            val videos = scanner.scan(channel)
+            val playback = cached ?: loadChannel(channel)
             val currentPreviewPath = repository.getPreviewPath(channel.uri)
-            val resumePoint = resolveResumePoint(
-                videoUris = videos.map { it.uri.toString() },
-                savedVideoUri = progress?.currentVideoUri,
-                savedVideoIndex = progress?.currentVideoIndex ?: 0,
-                savedPositionMs = progress?.positionMs ?: 0,
-            )
             _uiState.update {
                 it.copy(
-                    selectedChannel = channel,
-                    videos = videos,
-                    startVideoIndex = resumePoint.videoIndex,
-                    startPositionMs = resumePoint.positionMs,
+                    videos = playback.videos,
+                    startVideoIndex = playback.startVideoIndex,
+                    startPositionMs = playback.startPositionMs,
+                    preparedChannels = it.preparedChannels + (channel.uri to playback),
                     previewPath = currentPreviewPath,
                     previewUpdatedAt = currentPreviewPath?.let { path -> File(path).lastModified() } ?: 0,
                     isLoading = false,
-                    message = if (videos.isEmpty()) {
-                        "No playable videos in this channel"
-                    } else {
-                        null
-                    },
+                    message = if (playback.videos.isEmpty()) "No playable videos in this channel" else null,
                 )
             }
+            val neighbors = neighborChannelUris(_uiState.value.channels.map { it.uri }, channel.uri)
+            val retained = neighbors + channel.uri
+            _uiState.update { it.copy(preparedChannels = it.preparedChannels.filterKeys { uri -> uri in retained }) }
+            for (uri in neighbors) {
+                if (_uiState.value.preparedChannels.containsKey(uri)) continue
+                val neighbor = _uiState.value.channels.firstOrNull { it.uri == uri } ?: continue
+                val prepared = loadChannel(neighbor)
+                _uiState.update { it.copy(preparedChannels = it.preparedChannels + (uri to prepared)) }
+            }
         }
+    }
+
+    private suspend fun loadChannel(channel: ChannelFolder): ChannelPlayback {
+        val progress = repository.getProgress(channel.uri)
+        val videos = scanner.scan(channel)
+        val resumePoint = resolveResumePoint(
+            videoUris = videos.map { it.uri.toString() },
+            savedVideoUri = progress?.currentVideoUri,
+            savedVideoIndex = progress?.currentVideoIndex ?: 0,
+            savedPositionMs = progress?.positionMs ?: 0,
+        )
+        return ChannelPlayback(videos, resumePoint.videoIndex, resumePoint.positionMs)
     }
 
     override fun onCleared() {

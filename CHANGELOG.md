@@ -4,6 +4,14 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-01
+
+### Added
+
+- Keep the next and previous channels prepared and paused at their saved positions
+  for faster switching in both playback builds. Limit the pool to three players,
+  mute background preparation, and exclude it from watch time.
+
 ### Fixed
 
 - Stay in settings after adding a root folder, including while its channels are

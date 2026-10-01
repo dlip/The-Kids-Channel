@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -25,6 +26,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -49,9 +51,32 @@ fun PlayerScreen(
     onSettings: () -> Unit,
     onPlaybackMessage: (String?) -> Unit,
 ) {
+    PreparedPlayerScreen(state, onSelectChannel, onChannelPreviewPath) { channelState, active ->
+        rememberChannelPlayer(
+            channelState, active, onSaveProgress, onSavePreview,
+            onRecordWatchTime, onSettings, onPlaybackMessage,
+        )
+    }
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun rememberChannelPlayer(
+    state: MainUiState,
+    active: Boolean,
+    onSaveProgress: (String, String?, Int, Long) -> Job?,
+    onSavePreview: (String, Bitmap) -> Unit,
+    onRecordWatchTime: (ChannelFolder, Long) -> Unit,
+    onSettings: () -> Unit,
+    onPlaybackMessage: (String?) -> Unit,
+): ChannelPlayerControls {
+    val isActive by rememberUpdatedState(active)
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
+    var foreground by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+    }
     val channelUri = state.selectedChannel?.uri
     val player = remember(channelUri, state.normalizeAudio) {
         val renderersFactory = NormalizingRenderersFactory(
@@ -60,7 +85,11 @@ fun PlayerScreen(
         ).apply {
             setEnableDecoderFallback(true)
         }
-        ExoPlayer.Builder(context, renderersFactory).build()
+        ExoPlayer.Builder(context, renderersFactory)
+            .setLoadControl(DefaultLoadControl.Builder()
+                .setBufferDurationsMs(5_000, 10_000, 250, 500)
+                .build())
+            .build()
     }
     var playerView by remember(player) { mutableStateOf<PlayerView?>(null) }
     val frameCaptureMutex = remember { Mutex() }
@@ -71,9 +100,10 @@ fun PlayerScreen(
     var playingChannelUri by remember(player) { mutableStateOf<String?>(null) }
     var activelyPlaying by remember(player, channelUri) { mutableStateOf(false) }
 
-    TrackWatchTime(state.selectedChannel, activelyPlaying, onRecordWatchTime)
+    TrackWatchTime(state.selectedChannel, active && activelyPlaying, onRecordWatchTime)
 
     fun persistProgress(): Job? {
+        if (!isActive) return null
         val videoUri = player.currentMediaItem?.mediaId
         return onSaveProgress(
             playingChannelUri ?: return null,
@@ -84,6 +114,7 @@ fun PlayerScreen(
     }
 
     suspend fun captureAndSavePreview() {
+        if (!isActive) return
         val videoUri = player.currentMediaItem?.mediaId ?: return
         val previewChannelUri = playingChannelUri ?: return
         if (channelUri != previewChannelUri) return
@@ -140,8 +171,21 @@ fun PlayerScreen(
         playingChannelUri = channelUri
         player.repeatMode = Player.REPEAT_MODE_ALL
         player.prepare()
-        player.playWhenReady = true
-        onPlaybackMessage(null)
+        player.playWhenReady = isActive && foreground
+        if (isActive) onPlaybackMessage(null)
+    }
+
+    LaunchedEffect(player, active) {
+        player.volume = if (active) 1f else 0f
+        if (active && foreground) {
+            isPaused = false
+            if (player.mediaItemCount > 0) {
+                if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                player.play()
+            }
+        } else {
+            player.pause()
+        }
     }
 
     DisposableEffect(player, channelUri) {
@@ -155,7 +199,7 @@ fun PlayerScreen(
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (!listening || playingChannelUri != channelUri) return
-                isPaused = !playWhenReady
+                if (isActive && foreground) isPaused = !playWhenReady
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -166,6 +210,11 @@ fun PlayerScreen(
 
             override fun onPlayerError(error: PlaybackException) {
                 if (!listening || playingChannelUri != channelUri) return
+                if (!isActive) {
+                    player.stop()
+                    hasRenderedFirstFrame = false
+                    return
+                }
                 val failedIndex = player.currentMediaItemIndex
                 failedItems = failedItems + failedIndex
                 val nextIndex = (1..player.mediaItemCount)
@@ -198,8 +247,12 @@ fun PlayerScreen(
     DisposableEffect(lifecycleOwner, player, channelUri) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> if (player.mediaItemCount > 0) player.play()
+                Lifecycle.Event.ON_START -> {
+                    foreground = true
+                    if (isActive && player.mediaItemCount > 0 && !isPaused) player.play()
+                }
                 Lifecycle.Event.ON_STOP -> {
+                    foreground = false
                     saveProgress()
                     player.pause()
                     hasRenderedFirstFrame = false
@@ -227,18 +280,15 @@ fun PlayerScreen(
         }
     }
 
-    PlayerScreenLayout(
-        state = state,
-        isPaused = isPaused,
-        showPreview = !hasRenderedFirstFrame,
-        playbackStarted = playbackStarted,
-        onTogglePlayback = {
+    return ChannelPlayerControls(
+        isPaused = { isPaused },
+        hasRenderedFirstFrame = { hasRenderedFirstFrame },
+        playbackStarted = { playbackStarted },
+        togglePlayback = {
             if (player.playWhenReady) player.pause() else player.play()
         },
-        onPrepareChannelChange = ::prepareChannelChange,
-        onSelectChannel = onSelectChannel,
-        onChannelPreviewPath = onChannelPreviewPath,
-        onSettings = {
+        prepareChannelChange = ::prepareChannelChange,
+        openSettings = {
             coroutineScope.launch {
                 persistProgress()?.join()
                 onSettings()
