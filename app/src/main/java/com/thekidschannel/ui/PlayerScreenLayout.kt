@@ -18,8 +18,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -373,11 +377,11 @@ internal fun PlayerScreenLayout(
                             )
                         },
                 )
-                Text(
-                    text = "Paused",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                Icon(
+                    imageVector = Icons.Default.Pause,
+                    contentDescription = "Paused",
+                    tint = Color.White,
+                    modifier = Modifier.padding(12.dp).size(32.dp),
                 )
             }
         }
@@ -387,7 +391,7 @@ internal fun PlayerScreenLayout(
                 .fillMaxSize()
                 .semantics {
                     contentDescription = "Tap to pause or resume. Swipe up or down to change " +
-                        "channels. Hold the Paused label for settings."
+                        "channels. Hold the pause icon for settings."
                     onClick(label = if (isPaused) "Resume video" else "Pause video") {
                         if (!channelChangeInProgress && swipeTarget == null &&
                             swipeResetJob?.isActive != true &&

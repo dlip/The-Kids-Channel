@@ -57,7 +57,7 @@ number prefixes can be used to control their order.
 - Swipe up to move to the next channel and swipe down to move to the previous
   channel. Channels wrap around at either end.
 - Tap anywhere to pause or resume playback.
-- While paused, hold the Paused label for five seconds to open Settings.
+- While paused, hold the pause icon for five seconds to open Settings.
 
 Settings includes automatic audio normalization, enabled by default, to keep
 quiet and loud videos at a more consistent volume.
