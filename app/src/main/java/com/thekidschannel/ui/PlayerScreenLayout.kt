@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material3.CircularProgressIndicator
@@ -357,11 +358,12 @@ internal fun PlayerScreenLayout(
         }
 
         if (isPaused && !channelChangeInProgress && swipeTarget == null) {
+            val pauseShape = RoundedCornerShape(20.dp)
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .clip(pauseShape)
+                    .background(Color.Black.copy(alpha = 0.55f), pauseShape)
                     .onGloballyPositioned { pausedPillBounds = it.boundsInParent() },
             ) {
                 Box(
@@ -381,7 +383,7 @@ internal fun PlayerScreenLayout(
                     imageVector = Icons.Default.Pause,
                     contentDescription = "Paused",
                     tint = Color.White,
-                    modifier = Modifier.padding(12.dp).size(32.dp),
+                    modifier = Modifier.padding(24.dp).size(64.dp),
                 )
             }
         }

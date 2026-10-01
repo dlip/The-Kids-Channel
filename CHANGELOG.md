@@ -4,6 +4,21 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-01
+
+### Added
+
+- Generate missing channel previews from the first frame of a video when
+  channels are discovered.
+- Track active watch time by root folder and channel on a Stats page in Settings.
+- Temporarily disable root folders without removing their access or playback
+  positions.
+
+### Changed
+
+- Replace the Paused label with a pause icon and double the control's size,
+  using a rounded square shape. Hold it for five seconds to open Settings.
+
 ## [1.7.0] - 2026-09-30
 
 ### Added
