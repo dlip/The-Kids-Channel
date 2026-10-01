@@ -124,6 +124,16 @@ internal fun PlayerScreenLayout(
     }
     val previewVisible = state.isLoading ||
         (keepPreviewVisible && (showPreview || preview != null))
+    val waitingForVideo = previewVisible && (state.isLoading || showPreview)
+    var loadingIndicatorVisible by remember(channelUri) { mutableStateOf(false) }
+
+    LaunchedEffect(channelUri, waitingForVideo) {
+        loadingIndicatorVisible = false
+        if (waitingForVideo) {
+            delay(200)
+            loadingIndicatorVisible = true
+        }
+    }
 
     LaunchedEffect(
         channelUri,
@@ -293,6 +303,18 @@ internal fun PlayerScreenLayout(
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    if (waitingForVideo && loadingIndicatorVisible) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(24.dp)
+                                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                                .padding(12.dp)
+                                .size(32.dp)
+                                .semantics { contentDescription = "Loading video" },
                         )
                     }
                 }

@@ -4,6 +4,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.9.6] - 2026-10-01
+
+### Added
+
+- Show a loading spinner over the channel screenshot when waiting for video
+  takes longer than 200 ms, in both player builds.
+
 ## [1.9.5] - 2026-10-01
 
 ### Fixed
