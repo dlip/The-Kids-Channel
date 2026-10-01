@@ -110,6 +110,7 @@ dependencies {
     "standardImplementation"("androidx.media3:media3-exoplayer:1.6.0")
     "standardImplementation"("androidx.media3:media3-ui:1.6.0")
     "vlcImplementation"("org.videolan.android:libvlc-all:3.6.5")
+    "vlcImplementation"("net.java.dev.jna:jna:5.17.0@aar")
     implementation("androidx.documentfile:documentfile:1.0.1")
 
     implementation("androidx.room:room-runtime:2.7.0")

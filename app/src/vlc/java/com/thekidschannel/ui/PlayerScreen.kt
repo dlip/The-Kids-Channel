@@ -55,7 +55,11 @@ fun PlayerScreen(
     val libVlc = remember(state.normalizeAudio) {
         LibVLC(context, vlcAudioNormalizationOptions(state.normalizeAudio))
     }
-    val player = remember(libVlc) { MediaPlayer(libVlc) }
+    val player = remember(libVlc) {
+        MediaPlayer(libVlc).apply {
+            VlcAudioFilter.configure(this, state.normalizeAudio)
+        }
+    }
     var videoLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var videoViewsAttached by remember { mutableStateOf(false) }
     var resumePlaybackOnStart by remember { mutableStateOf(true) }

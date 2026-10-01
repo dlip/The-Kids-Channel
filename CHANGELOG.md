@@ -4,6 +4,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.9.4] - 2026-10-01
+
+### Fixed
+
+- Activate normalization on VLC's actual player audio output instead of
+  relying on startup options that LibVLC overrides.
+
 ## [1.9.3] - 2026-10-01
 
 ### Fixed
