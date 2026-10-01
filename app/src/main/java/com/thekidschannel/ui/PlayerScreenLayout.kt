@@ -246,10 +246,10 @@ internal fun PlayerScreenLayout(
             channelSlide = null
             pendingChannelUri = null
             channelChangeInProgress = false
-        } else if (pendingChannelUri == channelUri && !state.isLoading) {
-            // The channel is ready for input even if its first video frame is still arriving.
+        } else if (pendingChannelUri == channelUri) {
+            // Allow another swipe as soon as selection changes, even while its playlist loads.
             channelChangeInProgress = false
-            if (!keepPreviewVisible) {
+            if (!state.isLoading && !keepPreviewVisible) {
                 channelSlide = null
                 pendingChannelUri = null
             }
@@ -420,7 +420,7 @@ internal fun PlayerScreenLayout(
                         },
                     )
                 }
-                .pointerInput(channelUri, state.channels, state.isLoading, isPaused) {
+                .pointerInput(channelUri, state.channels, isPaused) {
                     try {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -470,7 +470,7 @@ internal fun PlayerScreenLayout(
                                         holdJob?.cancel()
                                         holdingForSettings = false
                                         if (abs(totalY) > abs(totalX) &&
-                                            !channelChangeInProgress && !state.isLoading
+                                            !channelChangeInProgress
                                         ) {
                                             val channelOffset = if (totalY < 0) 1 else -1
                                             val animationDirection = channelOffset
@@ -551,8 +551,8 @@ internal fun PlayerScreenLayout(
 
 private const val CHANNEL_PREPARE_TIMEOUT_MS = 1_000L
 private const val CHANNEL_CHANGE_WATCHDOG_MS = 5_000L
-private const val CHANNEL_SLIDE_MS = 420
-private const val CHANNEL_CHANGE_THRESHOLD = 0.2f
+private const val CHANNEL_SLIDE_MS = 210
+private const val CHANNEL_CHANGE_THRESHOLD = 0.1f
 private const val PREVIEW_FADE_OUT_MS = 100
 private const val SETTINGS_HOLD_MS = 3_000
 private const val POST_SWIPE_PAUSE_BLOCK_MS = 300L

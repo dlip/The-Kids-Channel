@@ -4,8 +4,14 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Allow swiping to another channel while the current channel is still loading.
+
 ### Changed
 
+- Double the vertical channel transition speed and lower the swipe threshold
+  to 10 percent of screen height.
 - Fill the Settings hold indicator with red from right to left.
 - Open Settings by holding the existing upper-left channel title for three
   seconds. Keep the pause icon in the center when playback is paused.

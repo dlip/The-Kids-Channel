@@ -55,7 +55,7 @@ number prefixes can be used to control their order.
 ## Controls
 
 - Swipe up to move to the next channel and swipe down to move to the previous
-  channel. Channels wrap around at either end.
+  channel, including while a channel is loading. Channels wrap around at either end.
 - Tap anywhere to pause or resume playback.
 - Hold the channel title in the upper left for three seconds to open Settings.
 
