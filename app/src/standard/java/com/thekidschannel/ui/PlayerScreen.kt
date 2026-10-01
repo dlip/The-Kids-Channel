@@ -62,7 +62,7 @@ fun PlayerScreen(
     var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
     var playbackStarted by remember(channelUri) { mutableStateOf(false) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
-    var isPaused by remember { mutableStateOf(false) }
+    var isPaused by remember(channelUri) { mutableStateOf(false) }
     var playingChannelUri by remember { mutableStateOf<String?>(null) }
     var activelyPlaying by remember(player, channelUri) { mutableStateOf(false) }
 

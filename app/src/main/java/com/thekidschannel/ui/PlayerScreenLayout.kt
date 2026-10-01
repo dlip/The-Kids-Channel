@@ -386,7 +386,10 @@ internal fun PlayerScreenLayout(
             }
         }
 
-        if (isPaused && !channelChangeInProgress && swipeTarget == null) {
+        if (
+            isPaused && !channelChangeInProgress && swipeTarget == null &&
+            pendingChannelUri == null && channelSlide == null
+        ) {
             val pauseShape = RoundedCornerShape(20.dp)
             Box(
                 modifier = Modifier

@@ -4,6 +4,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.9.7] - 2026-10-01
+
+### Fixed
+
+- Clear the previous channel's paused state when switching channels and keep
+  the pause button hidden throughout the channel transition.
+
 ## [1.9.6] - 2026-10-01
 
 ### Added

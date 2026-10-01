@@ -73,7 +73,7 @@ fun PlayerScreen(
     var lastProgressPositionMs by remember { mutableLongStateOf(0) }
     var playingChannelUri by remember { mutableStateOf<String?>(null) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
-    var isPaused by remember { mutableStateOf(false) }
+    var isPaused by remember(channelUri) { mutableStateOf(false) }
     var activelyPlaying by remember(channelUri) { mutableStateOf(false) }
 
     TrackWatchTime(state.selectedChannel, activelyPlaying, onRecordWatchTime)
