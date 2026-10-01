@@ -4,8 +4,12 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.9.8] - 2026-10-01
+
 ### Fixed
 
+- Give Standard playback a fresh video view on channel changes and discard
+  delayed callbacks and frame captures from the previous channel.
 - Start the loading spinner's 200 ms delay when the vertical transition ends,
   and show a thinner blue spinner in the centre above the incoming screenshot.
 

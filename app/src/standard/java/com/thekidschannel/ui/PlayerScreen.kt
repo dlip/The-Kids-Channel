@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -94,6 +95,13 @@ fun PlayerScreen(
                 return@withLock
             }
             val bitmap = captureVideoFrame(previewSource) ?: return@withLock
+            if (
+                playingChannelUri != previewChannelUri || playerView !== previewSource ||
+                player.currentMediaItem?.mediaId != videoUri || !hasRenderedFirstFrame
+            ) {
+                bitmap.recycle()
+                return@withLock
+            }
             onSavePreview(previewChannelUri, bitmap)
         }
     }
@@ -133,26 +141,32 @@ fun PlayerScreen(
     }
 
     DisposableEffect(player, channelUri) {
+        var listening = true
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                if (!listening || playingChannelUri != channelUri) return
                 hasRenderedFirstFrame = false
                 saveProgress()
             }
 
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                if (!listening || playingChannelUri != channelUri) return
                 isPaused = !playWhenReady
             }
 
             override fun onRenderedFirstFrame() {
+                if (!listening || playingChannelUri != channelUri) return
                 hasRenderedFirstFrame = true
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (!listening || playingChannelUri != channelUri) return
                 activelyPlaying = isPlaying
                 if (isPlaying) playbackStarted = true
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (!listening || playingChannelUri != channelUri) return
                 val failedIndex = player.currentMediaItemIndex
                 failedItems = failedItems + failedIndex
                 val nextIndex = (1..player.mediaItemCount)
@@ -169,6 +183,7 @@ fun PlayerScreen(
         }
         player.addListener(listener)
         onDispose {
+            listening = false
             player.removeListener(listener)
         }
     }
@@ -231,23 +246,27 @@ fun PlayerScreen(
             }
         },
         videoSurface = {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { viewContext ->
-                    PlayerView(viewContext).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                        useController = false
-                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        keepScreenOn = true
-                        this.player = player
-                        playerView = this
-                    }
-                },
-                update = { it.player = player },
-            )
+            key(channelUri) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { viewContext ->
+                        playerView?.player = null
+                        player.clearVideoSurface()
+                        PlayerView(viewContext).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
+                            useController = false
+                            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            keepScreenOn = true
+                            this.player = player
+                            playerView = this
+                        }
+                    },
+                    update = { it.player = player },
+                )
+            }
         },
     )
 }
