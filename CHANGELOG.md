@@ -4,6 +4,11 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Save the current video and position before opening Settings and resume from
+  that position when returning to playback.
+
 ## [1.9.1] - 2026-10-01
 
 ### Fixed

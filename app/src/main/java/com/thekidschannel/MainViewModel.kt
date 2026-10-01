@@ -137,6 +137,19 @@ class MainViewModel(
                     videoIndex = videoIndex,
                     positionMs = positionMs,
                 )
+                _uiState.update { state ->
+                    if (
+                        state.selectedChannel?.uri == channelUri &&
+                        state.videos.getOrNull(videoIndex)?.uri?.toString() == videoUri
+                    ) {
+                        state.copy(
+                            startVideoIndex = videoIndex,
+                            startPositionMs = positionMs.coerceAtLeast(0),
+                        )
+                    } else {
+                        state
+                    }
+                }
             }
         }
     }

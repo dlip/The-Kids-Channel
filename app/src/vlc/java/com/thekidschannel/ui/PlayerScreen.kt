@@ -333,7 +333,12 @@ fun PlayerScreen(
         onPrepareChannelChange = ::prepareChannelChange,
         onSelectChannel = onSelectChannel,
         onChannelPreviewPath = onChannelPreviewPath,
-        onSettings = onSettings,
+        onSettings = {
+            coroutineScope.launch {
+                persistProgress()?.join()
+                onSettings()
+            }
+        },
         videoSurface = {
             key(channelUri) {
                 AndroidView(
