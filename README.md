@@ -8,7 +8,7 @@ files, and each folder becomes a channel for children to watch.
 There is no timeline, seeking, playlist editing, or next-video button. Videos
 play in order, loop continuously, and resume where they left off.
 
-![The Kids Channel playback controls](docs/player-controls.png)
+![The Kids Channel paused with the channel title and pause button visible](docs/player-controls.png)
 
 ## Download and install
 
@@ -58,7 +58,7 @@ number prefixes can be used to control their order.
   channel, including while a channel is loading. Channels wrap around at either end.
 - Tap anywhere to pause or resume playback.
 - While paused, hold the channel title in the upper left for two seconds to
-  open Settings. The title also appears while changing channels.
+  open Settings.
 
 Settings includes automatic audio normalization, enabled by default, to keep
 quiet and loud videos at a more consistent volume.
