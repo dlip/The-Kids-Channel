@@ -4,7 +4,6 @@ import android.content.res.AssetFileDescriptor
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -66,7 +65,6 @@ fun PlayerScreen(
     val frameCaptureMutex = remember { Mutex() }
     var openFileDescriptor by remember { mutableStateOf<AssetFileDescriptor?>(null) }
     val channelUri = state.selectedChannel?.uri
-    var hasVideoOutput by remember(channelUri) { mutableStateOf(false) }
     var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
     var playbackStarted by remember(channelUri) { mutableStateOf(false) }
     var playlist by remember { mutableStateOf(emptyList<VideoItem>()) }
@@ -74,7 +72,6 @@ fun PlayerScreen(
     var pendingStartPositionMs by remember { mutableLongStateOf(0) }
     var lastProgressPositionMs by remember { mutableLongStateOf(0) }
     var playingChannelUri by remember { mutableStateOf<String?>(null) }
-    var revealPreviewAfterMs by remember(channelUri) { mutableLongStateOf(Long.MAX_VALUE) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember { mutableStateOf(false) }
     var activelyPlaying by remember(channelUri) { mutableStateOf(false) }
@@ -138,6 +135,15 @@ fun PlayerScreen(
         if (!videoViewsAttached) {
             player.attachViews(layout, null, false, true)
             videoViewsAttached = true
+            observeVlcVideoFrames(layout) {
+                if (
+                    videoLayout === layout &&
+                    playingChannelUri == channelUri &&
+                    pendingStartPositionMs == 0L
+                ) {
+                    hasRenderedFirstFrame = true
+                }
+            }
         }
     }
 
@@ -161,10 +167,8 @@ fun PlayerScreen(
         currentIndex = index
         playingChannelUri = channelUri
         lastProgressPositionMs = positionMs.coerceAtLeast(0)
-        hasVideoOutput = false
         hasRenderedFirstFrame = false
         playbackStarted = false
-        revealPreviewAfterMs = SystemClock.uptimeMillis() + MINIMUM_PREVIEW_TIME_MS
         pendingStartPositionMs = positionMs.coerceAtLeast(0)
         openFileDescriptor?.close()
         openFileDescriptor = fileDescriptor
@@ -213,18 +217,6 @@ fun PlayerScreen(
         onPlaybackMessage(null)
     }
 
-    LaunchedEffect(channelUri, hasVideoOutput, playbackStarted) {
-        if (!hasVideoOutput || !playbackStarted || hasRenderedFirstFrame) {
-            return@LaunchedEffect
-        }
-        val remainingMinimumPreviewTime =
-            (revealPreviewAfterMs - SystemClock.uptimeMillis()).coerceAtLeast(0L)
-        delay(remainingMinimumPreviewTime + VLC_FIRST_FRAME_FALLBACK_MS)
-        if (hasVideoOutput && playbackStarted && !hasRenderedFirstFrame) {
-            hasRenderedFirstFrame = true
-        }
-    }
-
     LaunchedEffect(
         channelUri,
         playlist.getOrNull(currentIndex)?.uri?.toString(),
@@ -254,17 +246,8 @@ fun PlayerScreen(
                         activelyPlaying = event.buffering >= 100f && player.isPlaying
                     }
                     MediaPlayer.Event.Stopped -> activelyPlaying = false
-                    MediaPlayer.Event.Vout -> {
-                        hasVideoOutput = event.voutCount > 0
-                    }
                     MediaPlayer.Event.TimeChanged -> {
                         applyPendingStartPosition()
-                        if (
-                            hasVideoOutput &&
-                            SystemClock.uptimeMillis() >= revealPreviewAfterMs
-                        ) {
-                            hasRenderedFirstFrame = true
-                        }
                     }
                     MediaPlayer.Event.EndReached -> {
                         activelyPlaying = false
@@ -296,7 +279,6 @@ fun PlayerScreen(
                     resumePlaybackOnStart = !isPaused
                     player.pause()
                     detachVideoViews()
-                    hasVideoOutput = false
                     hasRenderedFirstFrame = false
                 }
                 else -> Unit
@@ -365,9 +347,6 @@ fun PlayerScreen(
         },
     )
 }
-
-private const val MINIMUM_PREVIEW_TIME_MS = 250L
-private const val VLC_FIRST_FRAME_FALLBACK_MS = 500L
 
 internal fun vlcAudioNormalizationOptions(enabled: Boolean): MutableList<String> =
     if (enabled) {

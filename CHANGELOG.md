@@ -4,6 +4,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.9.5] - 2026-10-01
+
+### Fixed
+
+- Keep VLC's channel screenshot visible until the video texture receives a
+  frame, instead of hiding it on playback-time events or a fixed delay.
+
 ## [1.9.4] - 2026-10-01
 
 ### Fixed
