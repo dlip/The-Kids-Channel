@@ -55,7 +55,7 @@ fun PlayerScreen(
     val libVlc = remember(state.normalizeAudio) {
         LibVLC(context, vlcAudioNormalizationOptions(state.normalizeAudio))
     }
-    val player = remember { MediaPlayer(libVlc) }
+    val player = remember(libVlc) { MediaPlayer(libVlc) }
     var videoLayout by remember { mutableStateOf<VLCVideoLayout?>(null) }
     var videoViewsAttached by remember { mutableStateOf(false) }
     var resumePlaybackOnStart by remember { mutableStateOf(true) }
@@ -363,9 +363,14 @@ private const val VLC_FIRST_FRAME_FALLBACK_MS = 500L
 internal fun vlcAudioNormalizationOptions(enabled: Boolean): MutableList<String> =
     if (enabled) {
         arrayListOf(
-            "--audio-filter=normvol",
-            "--norm-max-level=2.0",
-            "--norm-buff-size=20",
+            "--audio-filter=compressor",
+            "--compressor-rms-peak=0.2",
+            "--compressor-attack=5.0",
+            "--compressor-release=250.0",
+            "--compressor-threshold=-24.0",
+            "--compressor-ratio=8.0",
+            "--compressor-knee=6.0",
+            "--compressor-makeup-gain=12.0",
         )
     } else {
         arrayListOf()

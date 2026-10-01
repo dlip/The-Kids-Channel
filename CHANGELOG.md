@@ -4,6 +4,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-01
+
+### Fixed
+
+- Boost quiet audio as well as reduce loud passages in the VLC build, and
+  widen the Standard build's automatic volume adjustment range.
+
 ## [1.9.0] - 2026-10-01
 
 ### Fixed

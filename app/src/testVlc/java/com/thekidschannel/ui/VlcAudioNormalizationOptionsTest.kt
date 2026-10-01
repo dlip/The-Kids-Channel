@@ -9,9 +9,10 @@ class VlcAudioNormalizationOptionsTest {
     fun normalizationIsConfiguredWhenEnabled() {
         val options = vlcAudioNormalizationOptions(enabled = true)
 
-        assertTrue("--audio-filter=normvol" in options)
-        assertTrue("--norm-max-level=2.0" in options)
-        assertTrue("--norm-buff-size=20" in options)
+        assertTrue("--audio-filter=compressor" in options)
+        assertTrue("--compressor-threshold=-24.0" in options)
+        assertTrue("--compressor-ratio=8.0" in options)
+        assertTrue("--compressor-makeup-gain=12.0" in options)
     }
 
     @Test

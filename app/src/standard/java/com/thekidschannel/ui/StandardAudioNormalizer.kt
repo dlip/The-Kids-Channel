@@ -108,8 +108,8 @@ private fun softLimit(sample: Float): Float {
 
 private const val TARGET_RMS = 0.18f
 private const val SILENCE_RMS = 0.005f
-private const val MIN_GAIN = 0.55f
-private const val MAX_GAIN = 2f
+private const val MIN_GAIN = 0.1f
+private const val MAX_GAIN = 6f
 private const val GAIN_REDUCTION_SPEED = 0.25f
 private const val GAIN_BOOST_SPEED = 0.04f
 private const val LIMITER_START = 0.9f
