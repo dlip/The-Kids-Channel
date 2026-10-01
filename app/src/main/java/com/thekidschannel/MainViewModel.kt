@@ -46,6 +46,7 @@ class MainViewModel(
     val uiState: StateFlow<MainUiState> = _uiState
     private var channelLoadJob: Job? = null
     private val progressSaveMutex = Mutex()
+    private val previewSaveMutex = Mutex()
 
     init {
         viewModelScope.launch {
@@ -63,6 +64,11 @@ class MainViewModel(
                     it.uri == repository.selectedChannelUri
                 } ?: channels.firstOrNull()
                 selectChannel(selectedChannel)
+                for (channel in channels) {
+                    if (repository.getPreviewPath(channel.uri) != null) continue
+                    val bitmap = scanner.createPreview(channel) ?: continue
+                    storePreview(channel.uri, bitmap, onlyIfMissing = true)
+                }
             }
         }
     }
@@ -109,8 +115,19 @@ class MainViewModel(
 
     fun savePreview(channelUri: String, bitmap: Bitmap) {
         viewModelScope.launch {
-            try {
-                val previewPath = repository.savePreview(channelUri, bitmap) ?: return@launch
+            storePreview(channelUri, bitmap)
+        }
+    }
+
+    private suspend fun storePreview(
+        channelUri: String,
+        bitmap: Bitmap,
+        onlyIfMissing: Boolean = false,
+    ) {
+        try {
+            previewSaveMutex.withLock {
+                if (onlyIfMissing && repository.getPreviewPath(channelUri) != null) return@withLock
+                val previewPath = repository.savePreview(channelUri, bitmap) ?: return@withLock
                 _uiState.update { state ->
                     if (state.selectedChannel?.uri == channelUri) {
                         state.copy(
@@ -121,9 +138,9 @@ class MainViewModel(
                         state
                     }
                 }
-            } finally {
-                bitmap.recycle()
             }
+        } finally {
+            bitmap.recycle()
         }
     }
 
@@ -176,6 +193,7 @@ class MainViewModel(
         channelLoadJob = viewModelScope.launch {
             val progress = repository.getProgress(channel.uri)
             val videos = scanner.scan(channel)
+            val currentPreviewPath = repository.getPreviewPath(channel.uri)
             val resumePoint = resolveResumePoint(
                 videoUris = videos.map { it.uri.toString() },
                 savedVideoUri = progress?.currentVideoUri,
@@ -188,8 +206,8 @@ class MainViewModel(
                     videos = videos,
                     startVideoIndex = resumePoint.videoIndex,
                     startPositionMs = resumePoint.positionMs,
-                    previewPath = previewPath,
-                    previewUpdatedAt = previewPath?.let { path -> File(path).lastModified() } ?: 0,
+                    previewPath = currentPreviewPath,
+                    previewUpdatedAt = currentPreviewPath?.let { path -> File(path).lastModified() } ?: 0,
                     isLoading = false,
                     message = if (videos.isEmpty()) {
                         "No playable videos in this channel"

@@ -1,11 +1,15 @@
 package com.thekidschannel.media
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.thekidschannel.data.RootEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 data class VideoItem(
@@ -49,6 +53,32 @@ class ChannelScanner(private val context: Context) {
             .firstOrNull { it.isDirectory && it.uri.toString() == channel.uri }
             ?: return@withContext emptyList()
         buildList { collectVideos(channelDirectory, mutableSetOf(), this) }
+    }
+
+    suspend fun createPreview(channel: ChannelFolder): Bitmap? = withContext(Dispatchers.IO) {
+        for (video in scan(channel)) {
+            ensureActive()
+            val retriever = MediaMetadataRetriever()
+            val bitmap = try {
+                retriever.setDataSource(context, video.uri)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    retriever.getScaledFrameAtTime(
+                        0,
+                        MediaMetadataRetriever.OPTION_CLOSEST,
+                        640,
+                        360,
+                    )
+                } else {
+                    retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST)
+                }
+            } catch (_: Exception) {
+                null
+            } finally {
+                runCatching { retriever.release() }
+            }
+            if (bitmap != null) return@withContext bitmap
+        }
+        null
     }
 
     private fun collectVideos(

@@ -66,6 +66,10 @@ The app remembers the current video and playback position separately for each
 channel. When it reaches the end of a channel, it starts again from the
 beginning.
 
+When channels are discovered, the app generates missing preview images from
+the first frame of their videos in the background. Playback refreshes these
+previews as you watch.
+
 Developer setup, building, deployment, and release instructions are in
 [DEVELOPMENT.md](DEVELOPMENT.md). See [CHANGELOG.md](CHANGELOG.md) for the
 version history.
