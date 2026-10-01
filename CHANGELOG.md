@@ -4,6 +4,11 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Start the loading spinner's 200 ms delay when the vertical transition ends,
+  and show a thinner blue spinner in the centre above the incoming screenshot.
+
 ## [1.9.7] - 2026-10-01
 
 ### Fixed

@@ -106,6 +106,7 @@ internal fun PlayerScreenLayout(
     }
     var channelChangeInProgress by remember { mutableStateOf(false) }
     var channelChangeGeneration by remember { mutableIntStateOf(0) }
+    var transitionFinishedAtMs by remember { mutableLongStateOf(0L) }
     var pendingChannelUri by remember { mutableStateOf<String?>(null) }
     var channelSlide by remember { mutableStateOf<SwipeTarget?>(null) }
     val channelLabelVisible = isPaused || swipeTarget != null ||
@@ -124,13 +125,17 @@ internal fun PlayerScreenLayout(
     }
     val previewVisible = state.isLoading ||
         (keepPreviewVisible && (showPreview || preview != null))
-    val waitingForVideo = previewVisible && (state.isLoading || showPreview)
+    val waitingForVideo =
+        (channelChangeInProgress && transitionFinishedAtMs != 0L) ||
+        (previewVisible && (state.isLoading || showPreview))
     var loadingIndicatorVisible by remember(channelUri) { mutableStateOf(false) }
 
-    LaunchedEffect(channelUri, waitingForVideo) {
+    LaunchedEffect(channelUri, waitingForVideo, transitionFinishedAtMs) {
         loadingIndicatorVisible = false
         if (waitingForVideo) {
-            delay(200)
+            val elapsed = if (transitionFinishedAtMs == 0L) 0L else
+                SystemClock.uptimeMillis() - transitionFinishedAtMs
+            delay((200L - elapsed).coerceAtLeast(0L))
             loadingIndicatorVisible = true
         }
     }
@@ -204,6 +209,7 @@ internal fun PlayerScreenLayout(
     fun changeChannel(target: SwipeTarget, heightPx: Float) {
         if (channelChangeInProgress) return
         channelChangeInProgress = true
+        transitionFinishedAtMs = 0L
         channelChangeGeneration += 1
         val transitionGeneration = channelChangeGeneration
         coroutineScope.launch {
@@ -216,6 +222,7 @@ internal fun PlayerScreenLayout(
                     animationSpec = tween(durationMillis = CHANNEL_SLIDE_MS,
                         easing = FastOutSlowInEasing),
                 ) { swipeOffset = value }
+                transitionFinishedAtMs = SystemClock.uptimeMillis()
                 withTimeoutOrNull(CHANNEL_PREPARE_TIMEOUT_MS) {
                     onPrepareChannelChange()
                 }
@@ -305,18 +312,6 @@ internal fun PlayerScreenLayout(
                             modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    if (waitingForVideo && loadingIndicatorVisible) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(24.dp)
-                                .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                                .padding(12.dp)
-                                .size(32.dp)
-                                .semantics { contentDescription = "Loading video" },
-                        )
-                    }
                 }
             }
         }
@@ -331,9 +326,7 @@ internal fun PlayerScreenLayout(
             )
         }
 
-        if (state.isLoading) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-        } else if (state.message != null) {
+        if (!state.isLoading && state.message != null) {
             Text(
                 text = state.message,
                 color = Color.White,
@@ -346,6 +339,20 @@ internal fun PlayerScreenLayout(
                 name = slide.name,
                 preview = slide.preview,
                 modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        if (
+            waitingForVideo && loadingIndicatorVisible && state.message == null &&
+            (swipeTarget == null || transitionFinishedAtMs != 0L)
+        ) {
+            CircularProgressIndicator(
+                color = Color(0xFF2196F3),
+                strokeWidth = 3.dp,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(48.dp)
+                    .semantics { contentDescription = "Loading video" },
             )
         }
 
