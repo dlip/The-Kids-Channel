@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.thekidschannel.media.ChannelFolder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -17,8 +18,10 @@ class RootRepository(
     private val context: Context,
     private val rootDao: RootDao,
     private val progressDao: ChannelProgressDao,
+    private val statsDao: ChannelStatsDao,
 ) {
     val roots: Flow<List<RootEntity>> = rootDao.observeAll()
+    val channelStats: Flow<List<ChannelStatsEntity>> = statsDao.observeAll()
 
     private val preferences =
         context.getSharedPreferences("playback", Context.MODE_PRIVATE)
@@ -46,6 +49,21 @@ class RootRepository(
                 sortOrder = rootDao.nextSortOrder(),
             ),
         )
+    }
+
+    suspend fun setRootEnabled(uri: String, enabled: Boolean) = rootDao.setEnabled(uri, enabled)
+
+    suspend fun addWatchTime(channel: ChannelFolder, elapsedMs: Long) {
+        statsDao.recordWatchTime(
+            ChannelStatsEntity(channel.uri, channel.rootUri, channel.name),
+            elapsedMs,
+        )
+    }
+
+    suspend fun rememberChannels(channels: List<ChannelFolder>) {
+        channels.forEach { channel ->
+            statsDao.rememberChannel(ChannelStatsEntity(channel.uri, channel.rootUri, channel.name))
+        }
     }
 
     suspend fun removeRoot(uri: String) {

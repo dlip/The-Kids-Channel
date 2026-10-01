@@ -9,7 +9,7 @@ class KidsChannelApplication : Application() {
     private val database by lazy { AppDatabase.create(this) }
 
     val rootRepository by lazy {
-        RootRepository(this, database.rootDao(), database.channelProgressDao())
+        RootRepository(this, database.rootDao(), database.channelProgressDao(), database.channelStatsDao())
     }
     val channelScanner by lazy { ChannelScanner(this) }
 }

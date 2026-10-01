@@ -25,6 +25,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.thekidschannel.MainUiState
+import com.thekidschannel.media.ChannelFolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -39,6 +40,7 @@ fun PlayerScreen(
     onChannelPreviewPath: suspend (String) -> String?,
     onSaveProgress: (String, String?, Int, Long) -> Job?,
     onSavePreview: (String, Bitmap) -> Unit,
+    onRecordWatchTime: (ChannelFolder, Long) -> Unit,
     onSettings: () -> Unit,
     onPlaybackMessage: (String?) -> Unit,
 ) {
@@ -62,6 +64,9 @@ fun PlayerScreen(
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember { mutableStateOf(false) }
     var playingChannelUri by remember { mutableStateOf<String?>(null) }
+    var activelyPlaying by remember(player, channelUri) { mutableStateOf(false) }
+
+    TrackWatchTime(state.selectedChannel, activelyPlaying, onRecordWatchTime)
 
     fun persistProgress(): Job? {
         val videoUri = player.currentMediaItem?.mediaId
@@ -143,6 +148,7 @@ fun PlayerScreen(
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                activelyPlaying = isPlaying
                 if (isPlaying) playbackStarted = true
             }
 

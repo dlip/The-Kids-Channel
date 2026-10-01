@@ -19,4 +19,10 @@ interface RootDao {
 
     @Query("DELETE FROM roots WHERE uri = :uri")
     suspend fun delete(uri: String)
+
+    @Query("UPDATE roots SET enabled = :enabled WHERE uri = :uri")
+    suspend fun setEnabled(uri: String, enabled: Boolean)
+
+    @Query("UPDATE roots SET watchTimeMs = watchTimeMs + :elapsedMs WHERE uri = :uri")
+    suspend fun addWatchTime(uri: String, elapsedMs: Long)
 }

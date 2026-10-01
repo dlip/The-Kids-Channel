@@ -62,6 +62,11 @@ number prefixes can be used to control their order.
 Settings includes automatic audio normalization, enabled by default, to keep
 quiet and loud videos at a more consistent volume.
 
+Open Stats in Settings to see total watch time grouped by root folder and
+channel, including disabled roots. Watch time recorded before channel tracking
+is listed separately under its root. Each root's switch in Settings temporarily
+disables its channels without removing the folder or playback positions.
+
 The app remembers the current video and playback position separately for each
 channel. When it reaches the end of a channel, it starts again from the
 beginning.

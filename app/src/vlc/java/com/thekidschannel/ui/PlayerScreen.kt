@@ -24,6 +24,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.thekidschannel.MainUiState
+import com.thekidschannel.media.ChannelFolder
 import com.thekidschannel.media.VideoItem
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -42,6 +43,7 @@ fun PlayerScreen(
     onChannelPreviewPath: suspend (String) -> String?,
     onSaveProgress: (String, String?, Int, Long) -> Job?,
     onSavePreview: (String, Bitmap) -> Unit,
+    onRecordWatchTime: (ChannelFolder, Long) -> Unit,
     onSettings: () -> Unit,
     onPlaybackMessage: (String?) -> Unit,
 ) {
@@ -70,6 +72,9 @@ fun PlayerScreen(
     var revealPreviewAfterMs by remember(channelUri) { mutableLongStateOf(Long.MAX_VALUE) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember { mutableStateOf(false) }
+    var activelyPlaying by remember(channelUri) { mutableStateOf(false) }
+
+    TrackWatchTime(state.selectedChannel, activelyPlaying, onRecordWatchTime)
 
     fun persistProgress(): Job? {
         val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString()
@@ -132,6 +137,7 @@ fun PlayerScreen(
     }
 
     fun playVideo(index: Int, positionMs: Long = 0) {
+        activelyPlaying = false
         val video = playlist.getOrNull(index) ?: return
         val fileDescriptor = runCatching {
             context.contentResolver.openAssetFileDescriptor(video.uri, "r")
@@ -220,12 +226,20 @@ fun PlayerScreen(
             mainHandler.post {
                 when (event.type) {
                     MediaPlayer.Event.Playing -> {
+                        activelyPlaying = true
                         isPaused = false
                         playbackStarted = true
                         applyPendingStartPosition()
                     }
                     MediaPlayer.Event.SeekableChanged -> applyPendingStartPosition()
-                    MediaPlayer.Event.Paused -> isPaused = true
+                    MediaPlayer.Event.Paused -> {
+                        isPaused = true
+                        activelyPlaying = false
+                    }
+                    MediaPlayer.Event.Buffering -> {
+                        activelyPlaying = event.buffering >= 100f && player.isPlaying
+                    }
+                    MediaPlayer.Event.Stopped -> activelyPlaying = false
                     MediaPlayer.Event.Vout -> {
                         hasVideoOutput = event.voutCount > 0
                     }
@@ -239,10 +253,14 @@ fun PlayerScreen(
                         }
                     }
                     MediaPlayer.Event.EndReached -> {
+                        activelyPlaying = false
                         val nextIndex = (currentIndex + 1) % playlist.size.coerceAtLeast(1)
                         playVideo(nextIndex)
                     }
-                    MediaPlayer.Event.EncounteredError -> playNextAvailable(currentIndex)
+                    MediaPlayer.Event.EncounteredError -> {
+                        activelyPlaying = false
+                        playNextAvailable(currentIndex)
+                    }
                 }
             }
         }

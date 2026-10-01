@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.thekidschannel.data.RootEntity
+import com.thekidschannel.data.ChannelStatsEntity
 import com.thekidschannel.data.RootRepository
 import com.thekidschannel.media.ChannelFolder
 import com.thekidschannel.media.ChannelScanner
@@ -16,6 +17,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -24,6 +28,7 @@ import java.io.File
 
 data class MainUiState(
     val roots: List<RootEntity> = emptyList(),
+    val channelStats: List<ChannelStatsEntity> = emptyList(),
     val channels: List<ChannelFolder> = emptyList(),
     val selectedChannel: ChannelFolder? = null,
     val videos: List<VideoItem> = emptyList(),
@@ -50,26 +55,41 @@ class MainViewModel(
 
     init {
         viewModelScope.launch {
-            repository.roots.collectLatest { roots ->
-                _uiState.update {
-                    it.copy(
-                        roots = roots,
-                        isLoading = roots.isNotEmpty(),
-                        message = null,
-                    )
-                }
-                val channels = scanner.discoverChannels(roots)
-                _uiState.update { it.copy(channels = channels) }
-                val selectedChannel = channels.firstOrNull {
-                    it.uri == repository.selectedChannelUri
-                } ?: channels.firstOrNull()
-                selectChannel(selectedChannel)
-                for (channel in channels) {
-                    if (repository.getPreviewPath(channel.uri) != null) continue
-                    val bitmap = scanner.createPreview(channel) ?: continue
-                    storePreview(channel.uri, bitmap, onlyIfMissing = true)
-                }
+            repository.roots.collect { roots ->
+                _uiState.update { it.copy(roots = roots) }
             }
+        }
+        viewModelScope.launch {
+            repository.channelStats.collect { stats ->
+                _uiState.update { it.copy(channelStats = stats) }
+            }
+        }
+        viewModelScope.launch {
+            repository.roots
+                .map { roots -> roots.map { it.copy(watchTimeMs = 0) } }
+                .distinctUntilChanged()
+                .collectLatest { roots ->
+                    _uiState.update {
+                        it.copy(
+                            isLoading = roots.any { it.enabled },
+                            message = null,
+                        )
+                    }
+                    val discoveredChannels = scanner.discoverChannels(roots)
+                    repository.rememberChannels(discoveredChannels)
+                    val enabledRoots = roots.filter { it.enabled }.map { it.uri }.toSet()
+                    val channels = discoveredChannels.filter { it.rootUri in enabledRoots }
+                    _uiState.update { it.copy(channels = channels) }
+                    val selectedChannel = channels.firstOrNull {
+                        it.uri == repository.selectedChannelUri
+                    } ?: channels.firstOrNull()
+                    selectChannel(selectedChannel)
+                    for (channel in channels) {
+                        if (repository.getPreviewPath(channel.uri) != null) continue
+                        val bitmap = scanner.createPreview(channel) ?: continue
+                        storePreview(channel.uri, bitmap, onlyIfMissing = true)
+                    }
+                }
         }
     }
 
@@ -83,6 +103,14 @@ class MainViewModel(
         viewModelScope.launch {
             repository.removeRoot(uri)
         }
+    }
+
+    fun setRootEnabled(uri: String, enabled: Boolean) {
+        viewModelScope.launch { repository.setRootEnabled(uri, enabled) }
+    }
+
+    fun recordWatchTime(channel: ChannelFolder, elapsedMs: Long) {
+        viewModelScope.launch { repository.addWatchTime(channel, elapsedMs) }
     }
 
     fun selectRelativeChannel(offset: Int) {
@@ -171,7 +199,11 @@ class MainViewModel(
                     message = if (it.roots.isEmpty()) {
                         null
                     } else {
-                        "No channel folders found inside the configured roots"
+                        if (it.roots.none { root -> root.enabled }) {
+                            "Enable a root folder to watch its channels"
+                        } else {
+                            "No channel folders found inside the configured roots"
+                        }
                     },
                 )
             }

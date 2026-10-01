@@ -2,9 +2,11 @@ package com.thekidschannel.ui
 
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,6 +35,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.thekidschannel.MainUiState
@@ -45,6 +49,10 @@ fun KidsChannelApp(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showStats by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = showStats || showSettings) {
+        if (showStats) showStats = false else showSettings = false
+    }
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
     ) { uri ->
@@ -59,14 +67,17 @@ fun KidsChannelApp(
     }
 
     when {
+        showStats -> StatsScreen(state = state, onBack = { showStats = false })
         state.isLoading && state.selectedChannel == null -> LoadingScreen()
-        showSettings || state.roots.isEmpty() -> ChannelSettings(
+        showSettings || state.roots.isEmpty() || (!state.isLoading && state.channels.isEmpty()) -> ChannelSettings(
             state = state,
-            canClose = state.roots.isNotEmpty(),
+            canClose = state.channels.isNotEmpty(),
             onClose = { showSettings = false },
             onAdd = { folderPicker.launch(null) },
             onRemove = viewModel::removeRoot,
+            onRootEnabledChanged = viewModel::setRootEnabled,
             onNormalizeAudioChanged = viewModel::setNormalizeAudio,
+            onStats = { showStats = true },
         )
         else -> PlayerScreen(
             state = state,
@@ -74,6 +85,7 @@ fun KidsChannelApp(
             onChannelPreviewPath = viewModel::getPreviewPath,
             onSaveProgress = viewModel::saveProgress,
             onSavePreview = viewModel::savePreview,
+            onRecordWatchTime = viewModel::recordWatchTime,
             onSettings = { showSettings = true },
             onPlaybackMessage = viewModel::showMessage,
         )
@@ -95,7 +107,9 @@ private fun ChannelSettings(
     onClose: () -> Unit,
     onAdd: () -> Unit,
     onRemove: (String) -> Unit,
+    onRootEnabledChanged: (String, Boolean) -> Unit,
     onNormalizeAudioChanged: (Boolean) -> Unit,
+    onStats: () -> Unit,
 ) {
     Scaffold(
         topBar = {
@@ -120,6 +134,8 @@ private fun ChannelSettings(
                 .padding(padding)
                 .padding(horizontal = 20.dp),
         ) {
+            Button(onClick = onStats) { Text("Stats") }
+            Spacer(Modifier.height(12.dp))
             ListItem(
                 headlineContent = { Text("Normalize audio") },
                 supportingContent = {
@@ -150,13 +166,27 @@ private fun ChannelSettings(
                 items(state.roots, key = { it.uri }) { root ->
                     ListItem(
                         headlineContent = { Text(root.name) },
-                        supportingContent = { Text(root.uri) },
+                        supportingContent = {
+                            Column {
+                                Text(if (root.enabled) "Enabled" else "Disabled")
+                                Text(root.uri)
+                            }
+                        },
                         trailingContent = {
-                            IconButton(onClick = { onRemove(root.uri) }) {
-                                Icon(
-                                    Icons.Default.Delete,
-                                    contentDescription = "Remove ${root.name}",
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Switch(
+                                    checked = root.enabled,
+                                    onCheckedChange = { onRootEnabledChanged(root.uri, it) },
+                                    modifier = Modifier.semantics {
+                                        contentDescription = "Enable ${root.name}"
+                                    },
                                 )
+                                IconButton(onClick = { onRemove(root.uri) }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Remove ${root.name}",
+                                    )
+                                }
                             }
                         },
                     )
