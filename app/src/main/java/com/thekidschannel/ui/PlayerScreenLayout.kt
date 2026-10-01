@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -294,25 +295,35 @@ internal fun PlayerScreenLayout(
         ) {
             videoSurface()
 
-            AnimatedVisibility(
-                visible = previewVisible,
-                enter = EnterTransition.None,
-                exit = fadeOut(tween(durationMillis = PREVIEW_FADE_OUT_MS)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black),
+            key(channelUri) {
+                AnimatedVisibility(
+                    visible = previewVisible,
+                    enter = EnterTransition.None,
+                    exit = fadeOut(tween(durationMillis = PREVIEW_FADE_OUT_MS)),
                 ) {
-                    preview?.let { image ->
-                        Image(
-                            bitmap = image,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                    ) {
+                        preview?.let { image ->
+                            Image(
+                                bitmap = image,
+                                contentDescription = null,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                 }
+            }
+
+            channelSlide?.let { slide ->
+                ChannelSlidePanel(
+                    name = slide.name,
+                    preview = slide.preview,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
 
@@ -331,14 +342,6 @@ internal fun PlayerScreenLayout(
                 text = state.message,
                 color = Color.White,
                 modifier = Modifier.align(Alignment.Center),
-            )
-        }
-
-        channelSlide?.let { slide ->
-            ChannelSlidePanel(
-                name = slide.name,
-                preview = slide.preview,
-                modifier = Modifier.fillMaxSize(),
             )
         }
 

@@ -4,6 +4,15 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Create a fresh Standard player for each channel so the previous decoder cannot
+  render a retained frame into the incoming channel's video view.
+- Move loading screenshots with their outgoing channel during another swipe and
+  reset preview fade animations when the selected channel changes.
+- Composite Standard video in a TextureView and wait for its first displayed
+  frame before removing the incoming screenshot.
+
 ## [1.9.8] - 2026-10-01
 
 ### Fixed

@@ -1,6 +1,9 @@
 package com.thekidschannel.ui
 
 import android.graphics.Bitmap
+import android.graphics.SurfaceTexture
+import android.view.LayoutInflater
+import android.view.TextureView
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -26,6 +29,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.thekidschannel.MainUiState
+import com.thekidschannel.R
 import com.thekidschannel.media.ChannelFolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -48,7 +52,8 @@ fun PlayerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
-    val player = remember(state.normalizeAudio) {
+    val channelUri = state.selectedChannel?.uri
+    val player = remember(channelUri, state.normalizeAudio) {
         val renderersFactory = NormalizingRenderersFactory(
             context,
             state.normalizeAudio,
@@ -57,14 +62,13 @@ fun PlayerScreen(
         }
         ExoPlayer.Builder(context, renderersFactory).build()
     }
-    val channelUri = state.selectedChannel?.uri
-    var playerView by remember { mutableStateOf<PlayerView?>(null) }
+    var playerView by remember(player) { mutableStateOf<PlayerView?>(null) }
     val frameCaptureMutex = remember { Mutex() }
     var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
     var playbackStarted by remember(channelUri) { mutableStateOf(false) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember(channelUri) { mutableStateOf(false) }
-    var playingChannelUri by remember { mutableStateOf<String?>(null) }
+    var playingChannelUri by remember(player) { mutableStateOf<String?>(null) }
     var activelyPlaying by remember(player, channelUri) { mutableStateOf(false) }
 
     TrackWatchTime(state.selectedChannel, activelyPlaying, onRecordWatchTime)
@@ -119,7 +123,7 @@ fun PlayerScreen(
         captureAndSavePreview()
     }
 
-    LaunchedEffect(channelUri, state.videos) {
+    LaunchedEffect(player, channelUri, state.videos) {
         hasRenderedFirstFrame = false
         if (state.videos.isEmpty()) {
             playingChannelUri = null
@@ -152,11 +156,6 @@ fun PlayerScreen(
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 if (!listening || playingChannelUri != channelUri) return
                 isPaused = !playWhenReady
-            }
-
-            override fun onRenderedFirstFrame() {
-                if (!listening || playingChannelUri != channelUri) return
-                hasRenderedFirstFrame = true
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -196,7 +195,7 @@ fun PlayerScreen(
         if (hasRenderedFirstFrame) captureAndSavePreview()
     }
 
-    DisposableEffect(lifecycleOwner, channelUri) {
+    DisposableEffect(lifecycleOwner, player, channelUri) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> if (player.mediaItemCount > 0) player.play()
@@ -246,13 +245,14 @@ fun PlayerScreen(
             }
         },
         videoSurface = {
-            key(channelUri) {
+            key(player) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { viewContext ->
-                        playerView?.player = null
-                        player.clearVideoSurface()
-                        PlayerView(viewContext).apply {
+                        (LayoutInflater.from(viewContext).inflate(
+                            R.layout.standard_player_view,
+                            null,
+                        ) as PlayerView).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -262,9 +262,21 @@ fun PlayerScreen(
                             keepScreenOn = true
                             this.player = player
                             playerView = this
+                            val texture = videoSurfaceView as TextureView
+                            val listener = checkNotNull(texture.surfaceTextureListener)
+                            texture.surfaceTextureListener = object :
+                                TextureView.SurfaceTextureListener by listener {
+                                override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+                                    listener.onSurfaceTextureUpdated(surface)
+                                    if (playerView === this@apply && playingChannelUri == channelUri) {
+                                        hasRenderedFirstFrame = true
+                                    }
+                                }
+                            }
                         }
                     },
                     update = { it.player = player },
+                    onRelease = { it.player = null },
                 )
             }
         },
