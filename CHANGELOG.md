@@ -10,10 +10,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ### Changed
 
-- Double the vertical channel transition speed and lower the swipe threshold
+- Require paused playback before holding the channel title to open Settings.
+- Show the channel title only while paused or changing channels.
+- Set the vertical channel transition to 150 ms and lower the swipe threshold
   to 10 percent of screen height.
-- Fill the Settings hold indicator with red from right to left.
-- Open Settings by holding the existing upper-left channel title for three
+- Fill the Settings hold indicator with red from both edges toward the finger's
+  press position.
+- Open Settings by holding the existing upper-left channel title for two
   seconds. Keep the pause icon in the center when playback is paused.
 
 ## [1.8.1] - 2026-10-01

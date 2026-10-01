@@ -93,11 +93,10 @@ internal fun PlayerScreenLayout(
     videoSurface: @Composable () -> Unit,
 ) {
     val channelUri = state.selectedChannel?.uri
-    var channelLabelVisible by remember { mutableStateOf(true) }
-    var labelInteraction by remember { mutableIntStateOf(0) }
     var holdingForSettings by remember { mutableStateOf(false) }
     var channelTitleBounds by remember { mutableStateOf<Rect?>(null) }
     val holdProgress = remember { Animatable(0f) }
+    var holdTargetFraction by remember { mutableFloatStateOf(0.5f) }
     var blockPauseUntil by remember { mutableLongStateOf(0L) }
     var swipeOffset by remember { mutableFloatStateOf(0f) }
     var swipeResetJob by remember { mutableStateOf<Job?>(null) }
@@ -109,6 +108,9 @@ internal fun PlayerScreenLayout(
     var channelChangeGeneration by remember { mutableIntStateOf(0) }
     var pendingChannelUri by remember { mutableStateOf<String?>(null) }
     var channelSlide by remember { mutableStateOf<SwipeTarget?>(null) }
+    val channelLabelVisible = isPaused || swipeTarget != null ||
+        channelChangeInProgress || pendingChannelUri != null || channelSlide != null
+    val currentChannelLabelVisible by rememberUpdatedState(channelLabelVisible)
     var keepPreviewVisible by remember(channelUri) { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
     val currentChannelPreviewPath by rememberUpdatedState(onChannelPreviewPath)
@@ -171,11 +173,6 @@ internal fun PlayerScreenLayout(
         // Once this channel is visible, a later video in its playlist must not
         // bring the channel-entry preview back over the playing video.
         if (!showPreview && playbackStarted) keepPreviewVisible = false
-    }
-
-    fun showChannelLabel() {
-        channelLabelVisible = true
-        labelInteraction++
     }
 
     fun targetForOffset(offset: Int, animationDirection: Int): SwipeTarget? {
@@ -256,14 +253,6 @@ internal fun PlayerScreenLayout(
         }
     }
 
-    LaunchedEffect(channelUri, labelInteraction, holdingForSettings, isPaused) {
-        channelLabelVisible = true
-        if (!holdingForSettings && !isPaused) {
-            delay(5_000)
-            channelLabelVisible = false
-        }
-    }
-
     val currentTogglePlayback by rememberUpdatedState(onTogglePlayback)
     val currentSettings by rememberUpdatedState(onSettings)
     // Fresh lambdas keep gesture callbacks tied to the newly selected channel.
@@ -272,9 +261,6 @@ internal fun PlayerScreenLayout(
     )
     val currentChangeChannel by rememberUpdatedState<(SwipeTarget, Float) -> Unit>(
         newValue = { target, height -> changeChannel(target, height) },
-    )
-    val currentShowChannelLabel by rememberUpdatedState<() -> Unit>(
-        newValue = { showChannelLabel() },
     )
 
     BoxWithConstraints(
@@ -353,11 +339,18 @@ internal fun PlayerScreenLayout(
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.55f), CircleShape)
                     .drawBehind {
-                        val fillWidth = size.width * if (holdingForSettings) holdProgress.value else 0f
+                        val progress = if (holdingForSettings) holdProgress.value else 0f
+                        val targetX = size.width * holdTargetFraction
+                        val leftWidth = targetX * progress
+                        val rightWidth = (size.width - targetX) * progress
                         drawRect(
                             color = Color.Red,
-                            topLeft = Offset(size.width - fillWidth, 0f),
-                            size = Size(fillWidth, size.height),
+                            size = Size(leftWidth, size.height),
+                        )
+                        drawRect(
+                            color = Color.Red,
+                            topLeft = Offset(size.width - rightWidth, 0f),
+                            size = Size(rightWidth, size.height),
                         )
                     }
                     .onGloballyPositioned { channelTitleBounds = it.boundsInRoot() },
@@ -393,7 +386,7 @@ internal fun PlayerScreenLayout(
                 .fillMaxSize()
                 .semantics {
                     contentDescription = "Tap to pause or resume. Swipe up or down to change " +
-                        "channels. Hold the upper-left channel title for three seconds for settings."
+                        "channels. While paused, hold the upper-left channel title for two seconds for settings."
                     onClick(label = if (isPaused) "Resume video" else "Pause video") {
                         if (!channelChangeInProgress && swipeTarget == null &&
                             swipeResetJob?.isActive != true &&
@@ -415,8 +408,12 @@ internal fun PlayerScreenLayout(
                             true
                         },
                         CustomAccessibilityAction("Open settings") {
-                            currentSettings()
-                            true
+                            if (isPaused) {
+                                currentSettings()
+                                true
+                            } else {
+                                false
+                            }
                         },
                     )
                 }
@@ -430,12 +427,16 @@ internal fun PlayerScreenLayout(
                                 swipeTarget = null
                             }
                             down.consume()
-                            val holdOnChannelTitle = channelLabelVisible &&
+                            val holdOnChannelTitle = isPaused && currentChannelLabelVisible &&
                                 channelTitleBounds?.contains(down.position) == true &&
                                 !channelChangeInProgress &&
                                 SystemClock.uptimeMillis() >= blockPauseUntil
                             var holdCompleted = false
                             val holdJob = if (holdOnChannelTitle) coroutineScope.launch {
+                                channelTitleBounds?.let { bounds ->
+                                    holdTargetFraction = ((down.position.x - bounds.left) / bounds.width)
+                                        .coerceIn(0f, 1f)
+                                }
                                 holdProgress.snapTo(0f)
                                 holdingForSettings = true
                                 holdProgress.animateTo(
@@ -532,7 +533,6 @@ internal fun PlayerScreenLayout(
                                 eventTimeIsTap(down.uptimeMillis, SystemClock.uptimeMillis())
                             ) {
                                 if (!holdOnChannelTitle) currentTogglePlayback()
-                                currentShowChannelLabel()
                             } else if (!released && target != null) {
                                 swipeOffset = 0f
                                 swipeTarget = null
@@ -551,10 +551,10 @@ internal fun PlayerScreenLayout(
 
 private const val CHANNEL_PREPARE_TIMEOUT_MS = 1_000L
 private const val CHANNEL_CHANGE_WATCHDOG_MS = 5_000L
-private const val CHANNEL_SLIDE_MS = 210
+private const val CHANNEL_SLIDE_MS = 150
 private const val CHANNEL_CHANGE_THRESHOLD = 0.1f
 private const val PREVIEW_FADE_OUT_MS = 100
-private const val SETTINGS_HOLD_MS = 3_000
+private const val SETTINGS_HOLD_MS = 2_000
 private const val POST_SWIPE_PAUSE_BLOCK_MS = 300L
 
 private fun eventTimeIsTap(downTime: Long, upTime: Long): Boolean =
