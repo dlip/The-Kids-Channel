@@ -4,6 +4,12 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- Fill the Settings hold indicator with red from right to left.
+- Open Settings by holding the existing upper-left channel title for three
+  seconds. Keep the pause icon in the center when playback is paused.
+
 ## [1.8.1] - 2026-10-01
 
 ### Fixed

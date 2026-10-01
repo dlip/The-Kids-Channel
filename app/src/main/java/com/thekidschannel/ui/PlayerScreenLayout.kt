@@ -19,12 +19,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -51,7 +52,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
@@ -95,7 +96,7 @@ internal fun PlayerScreenLayout(
     var channelLabelVisible by remember { mutableStateOf(true) }
     var labelInteraction by remember { mutableIntStateOf(0) }
     var holdingForSettings by remember { mutableStateOf(false) }
-    var pausedPillBounds by remember { mutableStateOf<Rect?>(null) }
+    var channelTitleBounds by remember { mutableStateOf<Rect?>(null) }
     val holdProgress = remember { Animatable(0f) }
     var blockPauseUntil by remember { mutableLongStateOf(0L) }
     var swipeOffset by remember { mutableFloatStateOf(0f) }
@@ -255,9 +256,9 @@ internal fun PlayerScreenLayout(
         }
     }
 
-    LaunchedEffect(channelUri, labelInteraction, holdingForSettings) {
+    LaunchedEffect(channelUri, labelInteraction, holdingForSettings, isPaused) {
         channelLabelVisible = true
-        if (!holdingForSettings) {
+        if (!holdingForSettings && !isPaused) {
             delay(5_000)
             channelLabelVisible = false
         }
@@ -345,16 +346,29 @@ internal fun PlayerScreenLayout(
             enter = fadeIn(tween(durationMillis = 200)),
             exit = fadeOut(tween(durationMillis = 500)),
         ) {
-            Text(
-                text = state.selectedChannel?.name.orEmpty(),
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .padding(20.dp)
+                    .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+                    .drawBehind {
+                        val fillWidth = size.width * if (holdingForSettings) holdProgress.value else 0f
+                        drawRect(
+                            color = Color.Red,
+                            topLeft = Offset(size.width - fillWidth, 0f),
+                            size = Size(fillWidth, size.height),
+                        )
+                    }
+                    .onGloballyPositioned { channelTitleBounds = it.boundsInRoot() },
+            ) {
+                Text(
+                    text = state.selectedChannel?.name.orEmpty(),
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
         }
 
         if (isPaused && !channelChangeInProgress && swipeTarget == null) {
@@ -363,22 +377,8 @@ internal fun PlayerScreenLayout(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .clip(pauseShape)
-                    .background(Color.Black.copy(alpha = 0.55f), pauseShape)
-                    .onGloballyPositioned { pausedPillBounds = it.boundsInParent() },
+                    .background(Color.Black.copy(alpha = 0.55f), pauseShape),
             ) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .drawBehind {
-                            drawRect(
-                                color = Color.Red,
-                                size = Size(
-                                    size.width * if (holdingForSettings) holdProgress.value else 0f,
-                                    size.height,
-                                ),
-                            )
-                        },
-                )
                 Icon(
                     imageVector = Icons.Default.Pause,
                     contentDescription = "Paused",
@@ -393,7 +393,7 @@ internal fun PlayerScreenLayout(
                 .fillMaxSize()
                 .semantics {
                     contentDescription = "Tap to pause or resume. Swipe up or down to change " +
-                        "channels. Hold the pause icon for settings."
+                        "channels. Hold the upper-left channel title for three seconds for settings."
                     onClick(label = if (isPaused) "Resume video" else "Pause video") {
                         if (!channelChangeInProgress && swipeTarget == null &&
                             swipeResetJob?.isActive != true &&
@@ -430,12 +430,12 @@ internal fun PlayerScreenLayout(
                                 swipeTarget = null
                             }
                             down.consume()
-                            val holdOnPausedPill = isPaused &&
-                                pausedPillBounds?.contains(down.position) == true &&
+                            val holdOnChannelTitle = channelLabelVisible &&
+                                channelTitleBounds?.contains(down.position) == true &&
                                 !channelChangeInProgress &&
                                 SystemClock.uptimeMillis() >= blockPauseUntil
                             var holdCompleted = false
-                            val holdJob = if (holdOnPausedPill) coroutineScope.launch {
+                            val holdJob = if (holdOnChannelTitle) coroutineScope.launch {
                                 holdProgress.snapTo(0f)
                                 holdingForSettings = true
                                 holdProgress.animateTo(
@@ -531,7 +531,7 @@ internal fun PlayerScreenLayout(
                                 SystemClock.uptimeMillis() >= blockPauseUntil &&
                                 eventTimeIsTap(down.uptimeMillis, SystemClock.uptimeMillis())
                             ) {
-                                currentTogglePlayback()
+                                if (!holdOnChannelTitle) currentTogglePlayback()
                                 currentShowChannelLabel()
                             } else if (!released && target != null) {
                                 swipeOffset = 0f
@@ -554,7 +554,7 @@ private const val CHANNEL_CHANGE_WATCHDOG_MS = 5_000L
 private const val CHANNEL_SLIDE_MS = 420
 private const val CHANNEL_CHANGE_THRESHOLD = 0.2f
 private const val PREVIEW_FADE_OUT_MS = 100
-private const val SETTINGS_HOLD_MS = 5_000
+private const val SETTINGS_HOLD_MS = 3_000
 private const val POST_SWIPE_PAUSE_BLOCK_MS = 300L
 
 private fun eventTimeIsTap(downTime: Long, upTime: Long): Boolean =
