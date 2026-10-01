@@ -58,8 +58,8 @@ fun KidsChannelApp(
     ) { uri ->
         if (uri != null) {
             if (takeFolderAccess(uri)) {
+                showSettings = true
                 viewModel.addRoot(uri)
-                showSettings = false
             } else {
                 viewModel.showMessage("Folder access could not be saved")
             }
@@ -68,12 +68,15 @@ fun KidsChannelApp(
 
     when {
         showStats -> StatsScreen(state = state, onBack = { showStats = false })
-        state.isLoading && state.selectedChannel == null -> LoadingScreen()
+        !showSettings && state.isLoading && state.selectedChannel == null -> LoadingScreen()
         showSettings || state.roots.isEmpty() || (!state.isLoading && state.channels.isEmpty()) -> ChannelSettings(
             state = state,
             canClose = state.channels.isNotEmpty(),
             onClose = { showSettings = false },
-            onAdd = { folderPicker.launch(null) },
+            onAdd = {
+                showSettings = true
+                folderPicker.launch(null)
+            },
             onRemove = viewModel::removeRoot,
             onRootEnabledChanged = viewModel::setRootEnabled,
             onNormalizeAudioChanged = viewModel::setNormalizeAudio,

@@ -6,6 +6,8 @@ Notable changes to The Kids Channel are recorded here.
 
 ### Fixed
 
+- Stay in settings after adding a root folder, including while its channels are
+  scanned, and wait for the user to return to the player before starting video.
 - Create a fresh Standard player for each channel so the previous decoder cannot
   render a retained frame into the incoming channel's video view.
 - Move loading screenshots with their outgoing channel during another swipe and
