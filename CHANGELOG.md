@@ -4,6 +4,14 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-10-01
+
+### Fixed
+
+- Give VLC a fresh video view on channel changes to prevent retained frames
+  flashing over the next channel, and discard delayed events and preview
+  captures from the previous channel.
+
 ## [1.8.0] - 2026-10-01
 
 ### Added

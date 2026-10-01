@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -104,6 +105,13 @@ fun PlayerScreen(
                 return@withLock
             }
             val bitmap = captureVideoFrame(previewSource) ?: return@withLock
+            if (playingChannelUri != previewChannelUri || videoLayout !== previewSource ||
+                playlist.getOrNull(currentIndex)?.uri?.toString() != videoUri ||
+                !hasRenderedFirstFrame
+            ) {
+                bitmap.recycle()
+                return@withLock
+            }
             onSavePreview(previewChannelUri, bitmap)
         }
     }
@@ -124,7 +132,7 @@ fun PlayerScreen(
     fun attachVideoViews() {
         val layout = videoLayout ?: return
         if (!videoViewsAttached) {
-            player.attachViews(layout, null, false, false)
+            player.attachViews(layout, null, false, true)
             videoViewsAttached = true
         }
     }
@@ -222,8 +230,10 @@ fun PlayerScreen(
     }
 
     DisposableEffect(player, channelUri) {
+        var listening = true
         player.setEventListener { event ->
             mainHandler.post {
+                if (!listening || playingChannelUri != channelUri) return@post
                 when (event.type) {
                     MediaPlayer.Event.Playing -> {
                         activelyPlaying = true
@@ -265,6 +275,7 @@ fun PlayerScreen(
             }
         }
         onDispose {
+            listening = false
             player.setEventListener(null)
         }
     }
@@ -324,20 +335,24 @@ fun PlayerScreen(
         onChannelPreviewPath = onChannelPreviewPath,
         onSettings = onSettings,
         videoSurface = {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { viewContext ->
-                    VLCVideoLayout(viewContext).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                        keepScreenOn = true
-                        videoLayout = this
-                        attachVideoViews()
-                    }
-                },
-            )
+            key(channelUri) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { viewContext ->
+                        player.stop()
+                        detachVideoViews()
+                        VLCVideoLayout(viewContext).apply {
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                            )
+                            keepScreenOn = true
+                            videoLayout = this
+                            attachVideoViews()
+                        }
+                    },
+                )
+            }
         },
     )
 }
