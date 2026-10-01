@@ -24,6 +24,16 @@ class AudioLevelingProcessorTest {
         assertEquals(0f, leveledRms(0f), 0f)
     }
 
+    @Test
+    fun veryQuietPcmGetsLiftedToTheTargetLevel() {
+        assertEquals(0.18f, leveledRms(0.01f), 0.01f)
+    }
+
+    @Test
+    fun quietPcmBelowTheOldSilenceGateIsStillBoosted() {
+        assertTrue(leveledRms(0.003f) > 0.05f)
+    }
+
     private fun leveledRms(amplitude: Float): Float {
         val processor = AudioLevelingProcessor()
         processor.configure(AudioFormat(48_000, 2, C.ENCODING_PCM_16BIT))

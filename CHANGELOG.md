@@ -4,6 +4,14 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-10-01
+
+### Fixed
+
+- Apply stronger boosting to very quiet videos while retaining compression
+  for loud audio, and stop treating low-volume recordings as silence in the
+  Standard build.
+
 ## [1.9.2] - 2026-10-01
 
 ### Fixed

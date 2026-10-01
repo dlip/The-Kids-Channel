@@ -10,9 +10,9 @@ class VlcAudioNormalizationOptionsTest {
         val options = vlcAudioNormalizationOptions(enabled = true)
 
         assertTrue("--audio-filter=compressor" in options)
-        assertTrue("--compressor-threshold=-24.0" in options)
-        assertTrue("--compressor-ratio=8.0" in options)
-        assertTrue("--compressor-makeup-gain=12.0" in options)
+        assertTrue("--compressor-threshold=-30.0" in options)
+        assertTrue("--compressor-ratio=20.0" in options)
+        assertTrue("--compressor-makeup-gain=20.0" in options)
     }
 
     @Test

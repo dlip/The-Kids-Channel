@@ -372,10 +372,10 @@ internal fun vlcAudioNormalizationOptions(enabled: Boolean): MutableList<String>
             "--compressor-rms-peak=0.2",
             "--compressor-attack=5.0",
             "--compressor-release=250.0",
-            "--compressor-threshold=-24.0",
-            "--compressor-ratio=8.0",
+            "--compressor-threshold=-30.0",
+            "--compressor-ratio=20.0",
             "--compressor-knee=6.0",
-            "--compressor-makeup-gain=12.0",
+            "--compressor-makeup-gain=20.0",
         )
     } else {
         arrayListOf()
