@@ -4,6 +4,8 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-01
+
 ### Fixed
 
 - Allow swiping to another channel while the current channel is still loading.
