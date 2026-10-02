@@ -4,6 +4,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-10-02
+
+### Fixed
+
+- Read folder entries and their metadata in one query per directory to reduce
+  channel-loading delays for large playlists on older devices.
+
 ## [1.10.1] - 2026-10-02
 
 ### Fixed

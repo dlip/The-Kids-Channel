@@ -6,7 +6,8 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
+import android.provider.DocumentsContract
+import android.provider.DocumentsContract.Document
 import com.thekidschannel.data.RootEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -27,11 +28,12 @@ class ChannelScanner(private val context: Context) {
     suspend fun discoverChannels(roots: List<RootEntity>): List<ChannelFolder> =
         withContext(Dispatchers.IO) {
             roots.flatMap { root ->
-                val rootDirectory = DocumentFile.fromTreeUri(context, root.uri.toUri())
-                    ?: return@flatMap emptyList()
-                runCatching { rootDirectory.listFiles().toList() }
-                    .getOrDefault(emptyList())
-                    .filter(DocumentFile::isDirectory)
+                val rootUri = root.uri.toUri()
+                val rootDirectory = DocumentsContract.buildDocumentUriUsingTree(
+                    rootUri, DocumentsContract.getTreeDocumentId(rootUri),
+                )
+                listChildren(rootDirectory)
+                    .filter { it.mimeType == Document.MIME_TYPE_DIR }
                     .sortedWith { left, right ->
                         NaturalOrder.compare(left.name.orEmpty(), right.name.orEmpty())
                     }
@@ -46,13 +48,7 @@ class ChannelScanner(private val context: Context) {
         }
 
     suspend fun scan(channel: ChannelFolder): List<VideoItem> = withContext(Dispatchers.IO) {
-        val root = DocumentFile.fromTreeUri(context, channel.rootUri.toUri())
-            ?: return@withContext emptyList()
-        val channelDirectory = runCatching { root.listFiles().toList() }
-            .getOrDefault(emptyList())
-            .firstOrNull { it.isDirectory && it.uri.toString() == channel.uri }
-            ?: return@withContext emptyList()
-        buildList { collectVideos(channelDirectory, mutableSetOf(), this) }
+        buildList { collectVideos(channel.uri.toUri(), mutableSetOf(), this) }
     }
 
     suspend fun createPreview(channel: ChannelFolder): Bitmap? = withContext(Dispatchers.IO) {
@@ -82,22 +78,21 @@ class ChannelScanner(private val context: Context) {
     }
 
     private fun collectVideos(
-        directory: DocumentFile,
+        directory: Uri,
         visitedDirectories: MutableSet<Uri>,
         videos: MutableList<VideoItem>,
     ) {
-        if (!visitedDirectories.add(directory.uri)) return
+        if (!visitedDirectories.add(directory)) return
 
-        val children = runCatching { directory.listFiles().toList() }
-            .getOrDefault(emptyList())
+        val children = listChildren(directory)
             .sortedWith { left, right ->
                 NaturalOrder.compare(left.name.orEmpty(), right.name.orEmpty())
             }
 
         children.forEach { child ->
             when {
-                child.isDirectory -> collectVideos(child, visitedDirectories, videos)
-                child.isFile && child.isVideo() -> videos += VideoItem(
+                child.mimeType == Document.MIME_TYPE_DIR -> collectVideos(child.uri, visitedDirectories, videos)
+                child.isVideo() -> videos += VideoItem(
                     uri = child.uri,
                     name = child.name ?: "Video",
                 )
@@ -105,8 +100,33 @@ class ChannelScanner(private val context: Context) {
         }
     }
 
-    private fun DocumentFile.isVideo(): Boolean {
-        if (type?.startsWith("video/") == true) return true
+    private data class DirectoryEntry(val uri: Uri, val name: String?, val mimeType: String?)
+
+    private fun listChildren(directory: Uri): List<DirectoryEntry> = runCatching {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            directory, DocumentsContract.getDocumentId(directory),
+        )
+        val projection = arrayOf(
+            Document.COLUMN_DOCUMENT_ID, Document.COLUMN_DISPLAY_NAME, Document.COLUMN_MIME_TYPE,
+        )
+        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            val idIndex = cursor.getColumnIndexOrThrow(Document.COLUMN_DOCUMENT_ID)
+            val nameIndex = cursor.getColumnIndexOrThrow(Document.COLUMN_DISPLAY_NAME)
+            val typeIndex = cursor.getColumnIndexOrThrow(Document.COLUMN_MIME_TYPE)
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(DirectoryEntry(
+                        DocumentsContract.buildDocumentUriUsingTree(directory, cursor.getString(idIndex)),
+                        cursor.getString(nameIndex),
+                        cursor.getString(typeIndex),
+                    ))
+                }
+            }
+        }.orEmpty()
+    }.getOrDefault(emptyList())
+
+    private fun DirectoryEntry.isVideo(): Boolean {
+        if (mimeType?.startsWith("video/") == true) return true
         val extension = name?.substringAfterLast('.', missingDelimiterValue = "")?.lowercase()
         return extension in VIDEO_EXTENSIONS
     }
