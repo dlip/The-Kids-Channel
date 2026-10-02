@@ -4,6 +4,15 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.10.3] - 2026-10-02
+
+### Fixed
+
+- Keep live video outside the translated swipe layer and animate screenshots
+  over it, preventing rapid loading-time swipes from stranding a TextureView.
+- Allow VLC stalled-frame recovery before the first displayed frame and without
+  relying on delayed buffering events.
+
 ## [1.10.2] - 2026-10-02
 
 ### Fixed

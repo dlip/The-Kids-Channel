@@ -288,16 +288,16 @@ internal fun PlayerScreenLayout(
             .background(Color.Black),
     ) {
         val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
+        videoSurface()
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { translationY = swipeOffset },
         ) {
-            videoSurface()
-
             key(channelUri) {
                 AnimatedVisibility(
-                    visible = previewVisible,
+                    visible = previewVisible || swipeTarget != null || channelChangeInProgress,
                     enter = EnterTransition.None,
                     exit = fadeOut(tween(durationMillis = PREVIEW_FADE_OUT_MS)),
                 ) {

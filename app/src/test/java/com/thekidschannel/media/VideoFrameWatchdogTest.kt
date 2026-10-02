@@ -6,6 +6,14 @@ import org.junit.Test
 
 class VideoFrameWatchdogTest {
     @Test
+    fun recoversWhenPlaybackAdvancesBeforeAnyFrameArrives() {
+        val watchdog = VideoFrameWatchdog()
+        watchdog.reset(0, 20_000)
+        assertFalse(watchdog.shouldRecover(500, 20_500, true))
+        assertTrue(watchdog.shouldRecover(1_000, 21_000, true))
+    }
+
+    @Test
     fun recoversWhenAudioAdvancesButFramesStop() {
         val watchdog = VideoFrameWatchdog()
         watchdog.reset(0, 0)

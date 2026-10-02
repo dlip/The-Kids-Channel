@@ -294,7 +294,7 @@ private fun rememberChannelPlayer(
             if (frameWatchdog.shouldRecover(
                     SystemClock.elapsedRealtime(),
                     player.time.coerceAtLeast(0),
-                    !isPaused && activelyPlaying && hasRenderedFirstFrame && player.isPlaying,
+                    !isPaused && player.isPlaying,
                 )
             ) {
                 player.pause()
