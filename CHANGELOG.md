@@ -4,6 +4,15 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-02
+
+### Fixed
+
+- Switch prepared video visibility on the native views instead of a Compose
+  alpha layer to avoid stale TextureView frames on older devices.
+- Pause VLC neighbours once after warming, and automatically resume stalled
+  video rendering when playback time advances without new frames.
+
 ## [1.10.0] - 2026-10-01
 
 ### Added

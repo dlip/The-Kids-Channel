@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.graphicsLayer
 import com.thekidschannel.MainUiState
 import com.thekidschannel.media.neighborChannelUris
 
@@ -68,9 +67,7 @@ internal fun PreparedPlayerScreen(
             Box(Modifier.fillMaxSize()) {
                 players.forEach { (uri, player) ->
                     key(uri, state.normalizeAudio) {
-                        Box(Modifier.fillMaxSize().graphicsLayer {
-                            alpha = if (uri == currentUri) 1f else 0f
-                        }) {
+                        Box(Modifier.fillMaxSize()) {
                             player.videoSurface()
                         }
                     }

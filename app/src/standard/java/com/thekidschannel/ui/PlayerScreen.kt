@@ -309,7 +309,8 @@ private fun rememberChannelPlayer(
                             )
                             useController = false
                             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            keepScreenOn = true
+                            keepScreenOn = isActive
+                            alpha = if (isActive) 1f else 0f
                             this.player = player
                             playerView = this
                             val texture = videoSurfaceView as TextureView
@@ -325,7 +326,11 @@ private fun rememberChannelPlayer(
                             }
                         }
                     },
-                    update = { it.player = player },
+                    update = {
+                        it.player = player
+                        it.alpha = if (isActive) 1f else 0f
+                        it.keepScreenOn = isActive
+                    },
                     onRelease = { it.player = null },
                 )
             }

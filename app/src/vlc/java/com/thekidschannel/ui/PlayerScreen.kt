@@ -4,6 +4,7 @@ import android.content.res.AssetFileDescriptor
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -27,6 +28,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.thekidschannel.MainUiState
 import com.thekidschannel.media.ChannelFolder
 import com.thekidschannel.media.VideoItem
+import com.thekidschannel.media.VideoFrameWatchdog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -104,6 +106,8 @@ private fun rememberChannelPlayer(
     var isPaused by remember(channelUri) { mutableStateOf(false) }
     var activelyPlaying by remember(channelUri) { mutableStateOf(false) }
     var preparationFailed by remember { mutableStateOf(false) }
+    var warmupPaused by remember { mutableStateOf(false) }
+    val frameWatchdog = remember(player) { VideoFrameWatchdog() }
 
     TrackWatchTime(state.selectedChannel, active && activelyPlaying, onRecordWatchTime)
 
@@ -157,6 +161,7 @@ private fun rememberChannelPlayer(
 
     suspend fun prepareChannelChange() {
         persistProgress()?.join()
+        warmupPaused = true
         player.pause()
         captureAndSavePreview()
     }
@@ -174,7 +179,11 @@ private fun rememberChannelPlayer(
                     pendingStartPositionMs == 0L
                 ) {
                     hasRenderedFirstFrame = true
-                    if (!isActive || !foreground) player.pause()
+                    frameWatchdog.onFrame(SystemClock.elapsedRealtime())
+                    if ((!isActive || !foreground) && !warmupPaused) {
+                        warmupPaused = true
+                        player.pause()
+                    }
                 }
             }
         }
@@ -190,6 +199,8 @@ private fun rememberChannelPlayer(
     fun playVideo(index: Int, positionMs: Long = 0) {
         activelyPlaying = false
         preparationFailed = false
+        warmupPaused = false
+        frameWatchdog.reset(SystemClock.elapsedRealtime(), positionMs)
         val video = playlist.getOrNull(index) ?: return
         val fileDescriptor = runCatching {
             context.contentResolver.openAssetFileDescriptor(video.uri, "r")
@@ -265,11 +276,30 @@ private fun rememberChannelPlayer(
         player.volume = if (active) 100 else 0
         if (active && foreground) {
             isPaused = false
+            warmupPaused = false
+            frameWatchdog.reset(SystemClock.elapsedRealtime(), player.time.coerceAtLeast(0))
             if (playlist.isNotEmpty()) {
                 if (preparationFailed) playVideo(currentIndex, lastProgressPositionMs) else player.play()
             }
-        } else if (hasRenderedFirstFrame) {
+        } else if (hasRenderedFirstFrame && !warmupPaused) {
+            warmupPaused = true
             player.pause()
+        }
+    }
+
+    LaunchedEffect(player, active, foreground) {
+        if (!active || !foreground) return@LaunchedEffect
+        while (true) {
+            delay(250)
+            if (frameWatchdog.shouldRecover(
+                    SystemClock.elapsedRealtime(),
+                    player.time.coerceAtLeast(0),
+                    !isPaused && activelyPlaying && hasRenderedFirstFrame && player.isPlaying,
+                )
+            ) {
+                player.pause()
+                player.play()
+            }
         }
     }
 
@@ -295,6 +325,12 @@ private fun rememberChannelPlayer(
                     MediaPlayer.Event.Stopped -> activelyPlaying = false
                     MediaPlayer.Event.TimeChanged -> {
                         applyPendingStartPosition()
+                        if (!isActive && !warmupPaused && pendingStartPositionMs == 0L &&
+                            player.time >= lastProgressPositionMs
+                        ) {
+                            warmupPaused = true
+                            player.pause()
+                        }
                     }
                     MediaPlayer.Event.EndReached -> {
                         activelyPlaying = false
@@ -330,6 +366,7 @@ private fun rememberChannelPlayer(
                 }
                 Lifecycle.Event.ON_STOP -> {
                     foreground = false
+                    warmupPaused = true
                     saveProgress()
                     resumePlaybackOnStart = !isPaused
                     player.pause()
@@ -367,6 +404,7 @@ private fun rememberChannelPlayer(
         hasRenderedFirstFrame = { hasRenderedFirstFrame },
         playbackStarted = { playbackStarted },
         togglePlayback = {
+            frameWatchdog.reset(SystemClock.elapsedRealtime(), player.time.coerceAtLeast(0))
             isPaused = !isPaused
             if (isPaused) player.pause() else player.play()
         },
@@ -389,10 +427,15 @@ private fun rememberChannelPlayer(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                             )
-                            keepScreenOn = true
+                            keepScreenOn = isActive
+                            alpha = if (isActive) 1f else 0f
                             videoLayout = this
                             attachVideoViews()
                         }
+                    },
+                    update = {
+                        it.alpha = if (isActive) 1f else 0f
+                        it.keepScreenOn = isActive
                     },
                 )
             }
