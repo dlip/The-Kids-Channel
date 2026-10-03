@@ -33,6 +33,9 @@ import com.thekidschannel.media.ChannelFolder
 import com.thekidschannel.media.VideoItem
 import com.thekidschannel.media.VideoFrameRecovery
 import com.thekidschannel.media.VideoFrameWatchdog
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -93,6 +96,7 @@ private fun rememberChannelPlayer(
     }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
     val player = remember(libVlc) {
+        libVlc.retain()
         MediaPlayer(libVlc).apply {
             VlcAudioFilter.configure(this, state.normalizeAudio)
         }
@@ -440,10 +444,31 @@ private fun rememberChannelPlayer(
     DisposableEffect(player) {
         onDispose {
             saveProgress()
-            player.stop()
+            player.setEventListener(null)
+            player.volume = 0
+            player.pause()
             detachVideoViews()
-            player.release()
-            openFileDescriptor?.close()
+            val descriptor = openFileDescriptor
+            openFileDescriptor = null
+            vlcCleanupScope.launch {
+                val startedAtMs = SystemClock.elapsedRealtime()
+                try {
+                    player.stop()
+                } finally {
+                    try {
+                        player.release()
+                    } finally {
+                        try {
+                            descriptor?.close()
+                        } finally {
+                            libVlc.release()
+                        }
+                    }
+                }
+                if (debugLogging) Log.d(
+                    "VlcRecovery", "cleanupMs=${SystemClock.elapsedRealtime() - startedAtMs}",
+                )
+            }
         }
     }
 
@@ -473,7 +498,6 @@ private fun rememberChannelPlayer(
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { viewContext ->
-                        player.stop()
                         detachVideoViews()
                         VLCVideoLayout(viewContext).apply {
                             layoutParams = ViewGroup.LayoutParams(
@@ -495,6 +519,8 @@ private fun rememberChannelPlayer(
         },
     )
 }
+
+private val vlcCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 internal fun vlcAudioNormalizationOptions(enabled: Boolean): MutableList<String> =
     if (enabled) {

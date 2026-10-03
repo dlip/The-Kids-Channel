@@ -6,6 +6,10 @@ Notable changes to The Kids Channel are recorded here.
 
 ### Fixed
 
+- Release discarded VLC decoders off the UI thread and avoid stopping playback
+  when creating a video view, so channel switches and the loading spinner stay
+  responsive during decoder cleanup.
+
 - Escalate VLC frame-stall recovery from pause/resume to a decoder reload at the
   current position, with software decoding if hardware recovery keeps failing.
   Remember software fallback for the affected video during the app session.
