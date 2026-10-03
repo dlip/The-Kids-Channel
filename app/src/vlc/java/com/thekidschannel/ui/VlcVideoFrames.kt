@@ -16,8 +16,29 @@ internal class VideoFrameListener(
     private val vlcListener: TextureView.SurfaceTextureListener,
     private val onFrame: () -> Unit,
 ) : TextureView.SurfaceTextureListener by vlcListener {
+    private val frames = VideoFrameTimestamp()
+
+    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+        frames.reset()
+        vlcListener.onSurfaceTextureAvailable(surface, width, height)
+    }
+
     override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
         vlcListener.onSurfaceTextureUpdated(surface)
-        onFrame()
+        if (frames.onUpdate(surface.timestamp)) onFrame()
+    }
+}
+
+internal class VideoFrameTimestamp {
+    private var previous: Long? = null
+
+    fun reset() {
+        previous = null
+    }
+
+    fun onUpdate(timestamp: Long): Boolean {
+        if (timestamp == previous) return false
+        previous = timestamp
+        return true
     }
 }

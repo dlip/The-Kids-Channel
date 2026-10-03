@@ -4,7 +4,12 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.10.6] - 2026-10-03
+
 ### Fixed
+
+- Ignore repeated VLC texture updates for the same frame so a frozen image does
+  not prevent playback recovery after channel switching.
 
 - Keep neighboring VLC players silent from startup through preparation and
   channel handoff, while retaining prepared audio buffers for quick switching.

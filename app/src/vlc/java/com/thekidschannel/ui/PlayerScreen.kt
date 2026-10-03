@@ -337,9 +337,12 @@ private fun rememberChannelPlayer(
             val nowMs = SystemClock.elapsedRealtime()
             if (debugLogging && nowMs - lastDiagnosticAtMs >= 1_000L) {
                 lastDiagnosticAtMs = nowMs
+                val media = player.media
+                val stats = try { media?.stats } finally { media?.release() }
                 Log.d("VlcRecovery", "position=${player.time} playing=${player.isPlaying} " +
                     "prepared=$hasRenderedFirstFrame visible=${playbackFrameState.value} " +
-                    "confirmed=$confirmedPositionMs requested=$requestedStartPositionMs")
+                    "confirmed=$confirmedPositionMs requested=$requestedStartPositionMs " +
+                    "decoded=${stats?.decodedVideo} displayed=${stats?.displayedPictures}")
             }
             if (frameWatchdog.shouldRecover(
                     SystemClock.elapsedRealtime(),
