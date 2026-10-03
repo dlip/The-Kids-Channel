@@ -1,5 +1,6 @@
 package com.thekidschannel.ui
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -13,12 +14,13 @@ import com.thekidschannel.media.neighborChannelUris
 
 internal data class ChannelPlayerControls(
     val isPaused: () -> Boolean,
+    val hasPreparedFrame: () -> Boolean,
     val hasRenderedFirstFrame: () -> Boolean,
-    val playbackStarted: () -> Boolean,
     val togglePlayback: () -> Unit,
+    val capturePreview: suspend () -> Bitmap?,
     val prepareChannelChange: suspend () -> Unit,
     val openSettings: () -> Unit,
-    val videoSurface: @Composable (Float) -> Unit,
+    val videoSurface: @Composable (Float, Boolean) -> Unit,
 )
 
 @Composable
@@ -52,7 +54,7 @@ internal fun PreparedPlayerScreen(
             }
             if (player != null) {
                 players[channel.uri] = player
-                if (active) currentFrameReady = player.hasRenderedFirstFrame()
+                if (active) currentFrameReady = player.hasPreparedFrame()
             }
         }
     val current = players[currentUri] ?: return
@@ -66,18 +68,24 @@ internal fun PreparedPlayerScreen(
         state = state,
         isPaused = isPaused,
         showPreview = !current.hasRenderedFirstFrame(),
-        playbackStarted = current.playbackStarted(),
         onTogglePlayback = current.togglePlayback,
         onPrepareChannelChange = current.prepareChannelChange,
         onSelectChannel = onSelectChannel,
         onChannelPreviewPath = onChannelPreviewPath,
         onSettings = current.openSettings,
-        videoSurface = { offset ->
+        capturePreparedPreview = { uri -> players[uri]?.capturePreview() },
+        hasPreparedVideo = { uri -> players[uri]?.hasPreparedFrame() == true },
+        videoSurface = { offset, incomingUri, incomingOffset ->
             Box(Modifier.fillMaxSize()) {
                 players.forEach { (uri, player) ->
                     key(uri, state.normalizeAudio) {
                         Box(Modifier.fillMaxSize()) {
-                            player.videoSurface(offset)
+                            val visible = uri == currentUri ||
+                                (uri == incomingUri && player.hasPreparedFrame())
+                            player.videoSurface(
+                                if (uri == incomingUri) incomingOffset else offset,
+                                visible,
+                            )
                         }
                     }
                 }

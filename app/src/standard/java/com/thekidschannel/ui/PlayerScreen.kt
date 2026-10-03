@@ -32,6 +32,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.thekidschannel.MainUiState
 import com.thekidschannel.R
+import com.thekidschannel.media.PlaybackFrameGate
 import com.thekidschannel.media.ChannelFolder
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -94,7 +95,12 @@ private fun rememberChannelPlayer(
     var playerView by remember(player) { mutableStateOf<PlayerView?>(null) }
     val frameCaptureMutex = remember { Mutex() }
     var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
-    var playbackStarted by remember(channelUri) { mutableStateOf(false) }
+    val playbackFrameState by rememberUpdatedState(
+        remember(player, active) { mutableStateOf(false) },
+    )
+    val playbackFrameGate by rememberUpdatedState(
+        remember(player, active) { PlaybackFrameGate(player.currentPosition.coerceAtLeast(0)) },
+    )
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
     var isPaused by remember(channelUri) { mutableStateOf(false) }
     var playingChannelUri by remember(player) { mutableStateOf<String?>(null) }
@@ -205,7 +211,6 @@ private fun rememberChannelPlayer(
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (!listening || playingChannelUri != channelUri) return
                 activelyPlaying = isPlaying
-                if (isPlaying) playbackStarted = true
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -282,10 +287,15 @@ private fun rememberChannelPlayer(
 
     return ChannelPlayerControls(
         isPaused = { isPaused },
-        hasRenderedFirstFrame = { hasRenderedFirstFrame },
-        playbackStarted = { playbackStarted },
+        hasPreparedFrame = { hasRenderedFirstFrame },
+        hasRenderedFirstFrame = { if (isActive) playbackFrameState.value else hasRenderedFirstFrame },
         togglePlayback = {
             if (player.playWhenReady) player.pause() else player.play()
+        },
+        capturePreview = {
+            if (hasRenderedFirstFrame && !player.isPlaying) {
+                playerView?.let { captureVideoFrame(it) }
+            } else null
         },
         prepareChannelChange = ::prepareChannelChange,
         openSettings = {
@@ -294,7 +304,7 @@ private fun rememberChannelPlayer(
                 onSettings()
             }
         },
-        videoSurface = { offset ->
+        videoSurface = { offset, visible ->
             key(player) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -309,7 +319,7 @@ private fun rememberChannelPlayer(
                             )
                             useController = false
                             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            alpha = if (isActive) 1f else 0f
+                            alpha = if (visible) 1f else 0f
                             translationY = offset
                             this.player = player
                             playerView = this
@@ -321,6 +331,9 @@ private fun rememberChannelPlayer(
                                     listener.onSurfaceTextureUpdated(surface)
                                     if (playerView === this@apply && playingChannelUri == channelUri) {
                                         hasRenderedFirstFrame = true
+                                        if (isActive) playbackFrameState.value = playbackFrameGate.onFrame(
+                                            player.currentPosition.coerceAtLeast(0), player.isPlaying,
+                                        )
                                     }
                                 }
                             }
@@ -328,7 +341,7 @@ private fun rememberChannelPlayer(
                     },
                     update = {
                         it.player = player
-                        it.alpha = if (isActive) 1f else 0f
+                        it.alpha = if (visible) 1f else 0f
                         it.translationY = offset
                     },
                     onRelease = { it.player = null },

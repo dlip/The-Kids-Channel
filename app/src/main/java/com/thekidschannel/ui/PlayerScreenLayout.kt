@@ -1,5 +1,6 @@
 package com.thekidschannel.ui
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
@@ -85,13 +86,14 @@ internal fun PlayerScreenLayout(
     state: MainUiState,
     isPaused: Boolean,
     showPreview: Boolean,
-    playbackStarted: Boolean,
     onTogglePlayback: () -> Unit,
     onPrepareChannelChange: suspend () -> Unit,
     onSelectChannel: (String) -> Unit,
     onChannelPreviewPath: suspend (String) -> String?,
     onSettings: () -> Unit,
-    videoSurface: @Composable (Float) -> Unit,
+    capturePreparedPreview: suspend (String) -> Bitmap?,
+    hasPreparedVideo: (String) -> Boolean,
+    videoSurface: @Composable (Float, String?, Float) -> Unit,
 ) {
     val channelUri = state.selectedChannel?.uri
     var holdingForSettings by remember { mutableStateOf(false) }
@@ -152,7 +154,7 @@ internal fun PlayerScreenLayout(
         if (swipeTarget?.uri == currentUri) {
             swipeTarget = swipeTarget?.copy(preview = image)
         }
-        if (channelSlide?.uri == currentUri) {
+        if (channelSlide?.uri == currentUri && channelSlide?.preview == null) {
             channelSlide = channelSlide?.copy(preview = image)
         }
     }
@@ -181,14 +183,14 @@ internal fun PlayerScreenLayout(
         neighbors.forEach { channel -> loadAdjacentPreview(channel.uri) }
     }
 
-    LaunchedEffect(channelUri, state.isLoading, showPreview, playbackStarted) {
+    LaunchedEffect(channelUri, state.isLoading, showPreview) {
         if (state.isLoading) {
             keepPreviewVisible = true
             return@LaunchedEffect
         }
         // Once this channel is visible, a later video in its playlist must not
         // bring the channel-entry preview back over the playing video.
-        if (!showPreview && playbackStarted) keepPreviewVisible = false
+        if (!showPreview) keepPreviewVisible = false
     }
 
     fun targetForOffset(offset: Int, animationDirection: Int): SwipeTarget? {
@@ -227,8 +229,11 @@ internal fun PlayerScreenLayout(
                 withTimeoutOrNull(CHANNEL_PREPARE_TIMEOUT_MS) {
                     onPrepareChannelChange()
                 }
+                val incomingPreview = capturePreparedPreview(target.uri)?.asImageBitmap()
                 pendingChannelUri = target.uri
-                channelSlide = swipeTarget?.takeIf { it.uri == target.uri } ?: target
+                channelSlide = (swipeTarget?.takeIf { it.uri == target.uri } ?: target).let {
+                    if (incomingPreview != null) it.copy(preview = incomingPreview) else it
+                }
                 swipeOffset = 0f
                 swipeTarget = null
                 onSelectChannel(target.uri)
@@ -292,7 +297,12 @@ internal fun PlayerScreenLayout(
             .background(Color.Black),
     ) {
         val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
-        videoSurface(swipeOffset)
+        val incoming = swipeTarget
+        videoSurface(
+            swipeOffset,
+            incoming?.uri,
+            swipeOffset + (incoming?.direction ?: 0) * heightPx,
+        )
 
         Box(
             modifier = Modifier
@@ -331,7 +341,7 @@ internal fun PlayerScreenLayout(
             }
         }
 
-        swipeTarget?.let { target ->
+        swipeTarget?.takeUnless { hasPreparedVideo(it.uri) }?.let { target ->
             ChannelSlidePanel(
                 name = target.name,
                 preview = target.preview,

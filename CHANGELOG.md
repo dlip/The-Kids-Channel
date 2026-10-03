@@ -4,6 +4,27 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Escalate VLC frame-stall recovery from pause/resume to a decoder reload at the
+  current position, with software decoding if hardware recovery keeps failing.
+  Remember software fallback for the affected video during the app session.
+
+- Clear the entry screenshot when fresh playback frames arrive, including rapid
+  switches to a VLC neighbor that is already playing during preparation.
+
+- Reveal resumed video after frame updates without waiting for VLC position
+  reports, and retain prepared neighbors throughout the handoff.
+
+- Wait for VLC to confirm the saved playback position before accepting a prepared
+  frame, and allow pause to finish before updating the outgoing preview.
+
+- Keep the incoming paused frame over the channel handoff until resumed playback
+  delivers fresh frame updates.
+
+- Show the neighboring channel's prepared video frame during a swipe, with its
+  saved screenshot as a fallback while video is not ready.
+
 ## [1.10.5] - 2026-10-03
 
 ### Fixed

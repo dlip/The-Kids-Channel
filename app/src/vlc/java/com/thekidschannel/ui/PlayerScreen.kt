@@ -1,11 +1,13 @@
 package com.thekidschannel.ui
 
 import android.content.res.AssetFileDescriptor
+import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.view.ViewGroup
+import android.util.Log
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -26,12 +28,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.thekidschannel.MainUiState
+import com.thekidschannel.media.PlaybackFrameGate
 import com.thekidschannel.media.ChannelFolder
 import com.thekidschannel.media.VideoItem
+import com.thekidschannel.media.VideoFrameRecovery
 import com.thekidschannel.media.VideoFrameWatchdog
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.videolan.libvlc.LibVLC
@@ -54,12 +59,13 @@ fun PlayerScreen(
     val libVlc = remember(state.normalizeAudio) {
         LibVLC(context, vlcAudioNormalizationOptions(state.normalizeAudio))
     }
+    val softwareDecoderVideos = remember(libVlc) { mutableSetOf<String>() }
     DisposableEffect(libVlc) {
         onDispose { libVlc.release() }
     }
     PreparedPlayerScreen(state, onSelectChannel, onChannelPreviewPath) { channelState, active ->
         rememberChannelPlayer(
-            channelState, active, libVlc, onSaveProgress, onSavePreview,
+            channelState, active, libVlc, softwareDecoderVideos, onSaveProgress, onSavePreview,
             onRecordWatchTime, onSettings, onPlaybackMessage,
         )
     }
@@ -70,6 +76,7 @@ private fun rememberChannelPlayer(
     state: MainUiState,
     active: Boolean,
     libVlc: LibVLC,
+    softwareDecoderVideos: MutableSet<String>,
     onSaveProgress: (String, String?, Int, Long) -> Job?,
     onSavePreview: (String, Bitmap) -> Unit,
     onRecordWatchTime: (ChannelFolder, Long) -> Unit,
@@ -78,6 +85,7 @@ private fun rememberChannelPlayer(
 ): ChannelPlayerControls {
     val isActive by rememberUpdatedState(active)
     val context = LocalContext.current
+    val debugLogging = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     var foreground by remember(lifecycleOwner) {
@@ -96,10 +104,17 @@ private fun rememberChannelPlayer(
     var openFileDescriptor by remember { mutableStateOf<AssetFileDescriptor?>(null) }
     val channelUri = state.selectedChannel?.uri
     var hasRenderedFirstFrame by remember(channelUri) { mutableStateOf(false) }
-    var playbackStarted by remember(channelUri) { mutableStateOf(false) }
+    val playbackFrameState by rememberUpdatedState(
+        remember(player, active) { mutableStateOf(false) },
+    )
+    val playbackFrameGate by rememberUpdatedState(
+        remember(player, active) { PlaybackFrameGate(player.time.coerceAtLeast(0)) },
+    )
     var playlist by remember { mutableStateOf(emptyList<VideoItem>()) }
     var currentIndex by remember { mutableIntStateOf(0) }
     var pendingStartPositionMs by remember { mutableLongStateOf(0) }
+    var requestedStartPositionMs by remember { mutableLongStateOf(0) }
+    var confirmedPositionMs by remember { mutableLongStateOf(-1) }
     var lastProgressPositionMs by remember { mutableLongStateOf(0) }
     var playingChannelUri by remember { mutableStateOf<String?>(null) }
     var failedItems by remember(channelUri) { mutableStateOf(emptySet<Int>()) }
@@ -108,6 +123,7 @@ private fun rememberChannelPlayer(
     var preparationFailed by remember { mutableStateOf(false) }
     var warmupPaused by remember { mutableStateOf(false) }
     val frameWatchdog = remember(player) { VideoFrameWatchdog() }
+    val frameRecovery = remember(player) { VideoFrameRecovery() }
 
     TrackWatchTime(state.selectedChannel, active && activelyPlaying, onRecordWatchTime)
 
@@ -160,7 +176,10 @@ private fun rememberChannelPlayer(
         persistProgress()?.join()
         warmupPaused = true
         player.pause()
-        captureAndSavePreview()
+        withTimeoutOrNull(250) {
+            while (player.isPlaying) delay(10)
+            captureAndSavePreview()
+        }
     }
 
     fun attachVideoViews() {
@@ -173,10 +192,19 @@ private fun rememberChannelPlayer(
                     videoViewsAttached &&
                     videoLayout === layout &&
                     playingChannelUri == channelUri &&
-                    pendingStartPositionMs == 0L
+                    pendingStartPositionMs == 0L &&
+                    confirmedPositionMs >= requestedStartPositionMs
                 ) {
                     hasRenderedFirstFrame = true
-                    frameWatchdog.onFrame(SystemClock.elapsedRealtime())
+                    if (isActive) playbackFrameState.value = playbackFrameGate.onFrame(
+                        player.time.coerceAtLeast(0), player.isPlaying,
+                    )
+                    if (isActive && playbackFrameState.value && player.isPlaying) {
+                        activelyPlaying = true
+                    }
+                    val frameTime = SystemClock.elapsedRealtime()
+                    frameWatchdog.onFrame(frameTime)
+                    if (isActive) frameRecovery.onFrame(frameTime)
                     if ((!isActive || !foreground) && !warmupPaused) {
                         warmupPaused = true
                         player.pause()
@@ -193,7 +221,8 @@ private fun rememberChannelPlayer(
         }
     }
 
-    fun playVideo(index: Int, positionMs: Long = 0) {
+    fun playVideo(index: Int, positionMs: Long = 0, recovering: Boolean = false) {
+        if (!recovering) frameRecovery.reset()
         activelyPlaying = false
         preparationFailed = false
         warmupPaused = false
@@ -210,12 +239,13 @@ private fun rememberChannelPlayer(
         playingChannelUri = channelUri
         lastProgressPositionMs = positionMs.coerceAtLeast(0)
         hasRenderedFirstFrame = false
-        playbackStarted = false
         pendingStartPositionMs = positionMs.coerceAtLeast(0)
+        requestedStartPositionMs = positionMs.coerceAtLeast(0)
+        confirmedPositionMs = if (positionMs == 0L) 0L else -1L
         openFileDescriptor?.close()
         openFileDescriptor = fileDescriptor
         val media = Media(libVlc, fileDescriptor).apply {
-            setHWDecoderEnabled(true, false)
+            setHWDecoderEnabled(video.uri.toString() !in softwareDecoderVideos, false)
             if (positionMs > 0) addOption(":start-time=${positionMs / 1000.0}")
         }
         player.media = media
@@ -282,16 +312,41 @@ private fun rememberChannelPlayer(
 
     LaunchedEffect(player, active, foreground) {
         if (!active || !foreground) return@LaunchedEffect
+        var lastDiagnosticAtMs = 0L
         while (true) {
             delay(250)
+            val nowMs = SystemClock.elapsedRealtime()
+            if (debugLogging && nowMs - lastDiagnosticAtMs >= 1_000L) {
+                lastDiagnosticAtMs = nowMs
+                Log.d("VlcRecovery", "position=${player.time} playing=${player.isPlaying} " +
+                    "prepared=$hasRenderedFirstFrame visible=${playbackFrameState.value} " +
+                    "confirmed=$confirmedPositionMs requested=$requestedStartPositionMs")
+            }
             if (frameWatchdog.shouldRecover(
                     SystemClock.elapsedRealtime(),
                     player.time.coerceAtLeast(0),
                     !isPaused && player.isPlaying,
                 )
             ) {
-                player.pause()
-                player.play()
+                val action = frameRecovery.nextAction()
+                val resumePosition = player.time.coerceAtLeast(lastProgressPositionMs)
+                if (debugLogging) Log.d(
+                    "VlcRecovery", "action=$action position=$resumePosition channel=$channelUri",
+                )
+                when (action) {
+                    VideoFrameRecovery.Action.RESUME -> {
+                        player.pause()
+                        player.play()
+                    }
+                    VideoFrameRecovery.Action.RELOAD, VideoFrameRecovery.Action.SOFTWARE -> {
+                        if (action == VideoFrameRecovery.Action.SOFTWARE) {
+                            playlist.getOrNull(currentIndex)?.uri?.toString()?.let {
+                                softwareDecoderVideos.add(it)
+                            }
+                        }
+                        playVideo(currentIndex, resumePosition, recovering = true)
+                    }
+                }
             }
         }
     }
@@ -304,7 +359,6 @@ private fun rememberChannelPlayer(
                 when (event.type) {
                     MediaPlayer.Event.Playing -> {
                         activelyPlaying = isActive
-                        if (isActive) playbackStarted = true
                         applyPendingStartPosition()
                         if (!foreground) player.pause()
                     }
@@ -317,9 +371,10 @@ private fun rememberChannelPlayer(
                     }
                     MediaPlayer.Event.Stopped -> activelyPlaying = false
                     MediaPlayer.Event.TimeChanged -> {
+                        confirmedPositionMs = event.timeChanged
                         applyPendingStartPosition()
                         if (!isActive && !warmupPaused && pendingStartPositionMs == 0L &&
-                            player.time >= lastProgressPositionMs
+                            confirmedPositionMs >= requestedStartPositionMs + 1_000L
                         ) {
                             warmupPaused = true
                             player.pause()
@@ -394,12 +449,17 @@ private fun rememberChannelPlayer(
 
     return ChannelPlayerControls(
         isPaused = { isPaused },
-        hasRenderedFirstFrame = { hasRenderedFirstFrame },
-        playbackStarted = { playbackStarted },
+        hasPreparedFrame = { hasRenderedFirstFrame },
+        hasRenderedFirstFrame = { if (isActive) playbackFrameState.value else hasRenderedFirstFrame },
         togglePlayback = {
             frameWatchdog.reset(SystemClock.elapsedRealtime(), player.time.coerceAtLeast(0))
             isPaused = !isPaused
             if (isPaused) player.pause() else player.play()
+        },
+        capturePreview = {
+            if (hasRenderedFirstFrame && !player.isPlaying) {
+                videoLayout?.let { captureVideoFrame(it) }
+            } else null
         },
         prepareChannelChange = ::prepareChannelChange,
         openSettings = {
@@ -408,7 +468,7 @@ private fun rememberChannelPlayer(
                 onSettings()
             }
         },
-        videoSurface = { offset ->
+        videoSurface = { offset, visible ->
             key(channelUri) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -420,14 +480,14 @@ private fun rememberChannelPlayer(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                             )
-                            alpha = if (isActive) 1f else 0f
+                            alpha = if (visible) 1f else 0f
                             translationY = offset
                             videoLayout = this
                             attachVideoViews()
                         }
                     },
                     update = {
-                        it.alpha = if (isActive) 1f else 0f
+                        it.alpha = if (visible) 1f else 0f
                         it.translationY = offset
                     },
                 )
