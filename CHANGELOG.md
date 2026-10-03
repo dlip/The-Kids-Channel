@@ -4,6 +4,11 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Move the current channel's live video with the swipe using native view
+  translation, keeping playback visible without a Compose video layer.
+
 ## [1.10.3] - 2026-10-02
 
 ### Fixed

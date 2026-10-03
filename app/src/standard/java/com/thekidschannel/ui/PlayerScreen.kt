@@ -294,7 +294,7 @@ private fun rememberChannelPlayer(
                 onSettings()
             }
         },
-        videoSurface = {
+        videoSurface = { offset ->
             key(player) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -311,6 +311,7 @@ private fun rememberChannelPlayer(
                             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                             keepScreenOn = isActive
                             alpha = if (isActive) 1f else 0f
+                            translationY = offset
                             this.player = player
                             playerView = this
                             val texture = videoSurfaceView as TextureView
@@ -329,6 +330,7 @@ private fun rememberChannelPlayer(
                     update = {
                         it.player = player
                         it.alpha = if (isActive) 1f else 0f
+                        it.translationY = offset
                         it.keepScreenOn = isActive
                     },
                     onRelease = { it.player = null },

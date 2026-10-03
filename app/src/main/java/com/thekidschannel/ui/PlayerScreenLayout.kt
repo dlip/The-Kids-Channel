@@ -91,7 +91,7 @@ internal fun PlayerScreenLayout(
     onSelectChannel: (String) -> Unit,
     onChannelPreviewPath: suspend (String) -> String?,
     onSettings: () -> Unit,
-    videoSurface: @Composable () -> Unit,
+    videoSurface: @Composable (Float) -> Unit,
 ) {
     val channelUri = state.selectedChannel?.uri
     var holdingForSettings by remember { mutableStateOf(false) }
@@ -288,7 +288,7 @@ internal fun PlayerScreenLayout(
             .background(Color.Black),
     ) {
         val heightPx = with(LocalDensity.current) { maxHeight.toPx() }
-        videoSurface()
+        videoSurface(swipeOffset)
 
         Box(
             modifier = Modifier
@@ -297,7 +297,7 @@ internal fun PlayerScreenLayout(
         ) {
             key(channelUri) {
                 AnimatedVisibility(
-                    visible = previewVisible || swipeTarget != null || channelChangeInProgress,
+                    visible = previewVisible,
                     enter = EnterTransition.None,
                     exit = fadeOut(tween(durationMillis = PREVIEW_FADE_OUT_MS)),
                 ) {

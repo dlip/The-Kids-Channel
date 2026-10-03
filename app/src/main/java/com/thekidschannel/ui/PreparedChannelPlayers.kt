@@ -15,7 +15,7 @@ internal data class ChannelPlayerControls(
     val togglePlayback: () -> Unit,
     val prepareChannelChange: suspend () -> Unit,
     val openSettings: () -> Unit,
-    val videoSurface: @Composable () -> Unit,
+    val videoSurface: @Composable (Float) -> Unit,
 )
 
 @Composable
@@ -63,12 +63,12 @@ internal fun PreparedPlayerScreen(
         onSelectChannel = onSelectChannel,
         onChannelPreviewPath = onChannelPreviewPath,
         onSettings = current.openSettings,
-        videoSurface = {
+        videoSurface = { offset ->
             Box(Modifier.fillMaxSize()) {
                 players.forEach { (uri, player) ->
                     key(uri, state.normalizeAudio) {
                         Box(Modifier.fillMaxSize()) {
-                            player.videoSurface()
+                            player.videoSurface(offset)
                         }
                     }
                 }

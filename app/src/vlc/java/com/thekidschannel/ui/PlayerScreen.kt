@@ -415,7 +415,7 @@ private fun rememberChannelPlayer(
                 onSettings()
             }
         },
-        videoSurface = {
+        videoSurface = { offset ->
             key(channelUri) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
@@ -429,12 +429,14 @@ private fun rememberChannelPlayer(
                             )
                             keepScreenOn = isActive
                             alpha = if (isActive) 1f else 0f
+                            translationY = offset
                             videoLayout = this
                             attachVideoViews()
                         }
                     },
                     update = {
                         it.alpha = if (isActive) 1f else 0f
+                        it.translationY = offset
                         it.keepScreenOn = isActive
                     },
                 )
