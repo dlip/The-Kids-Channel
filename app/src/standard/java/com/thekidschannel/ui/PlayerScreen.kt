@@ -309,7 +309,6 @@ private fun rememberChannelPlayer(
                             )
                             useController = false
                             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                            keepScreenOn = isActive
                             alpha = if (isActive) 1f else 0f
                             translationY = offset
                             this.player = player
@@ -331,7 +330,6 @@ private fun rememberChannelPlayer(
                         it.player = player
                         it.alpha = if (isActive) 1f else 0f
                         it.translationY = offset
-                        it.keepScreenOn = isActive
                     },
                     onRelease = { it.player = null },
                 )

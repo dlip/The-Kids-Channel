@@ -3,8 +3,11 @@ package com.thekidschannel.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import com.thekidschannel.MainUiState
 import com.thekidschannel.media.neighborChannelUris
 
@@ -53,9 +56,15 @@ internal fun PreparedPlayerScreen(
             }
         }
     val current = players[currentUri] ?: return
+    val view = LocalView.current
+    val isPaused = current.isPaused()
+    SideEffect { view.keepScreenOn = !isPaused }
+    DisposableEffect(view) {
+        onDispose { view.keepScreenOn = false }
+    }
     PlayerScreenLayout(
         state = state,
-        isPaused = current.isPaused(),
+        isPaused = isPaused,
         showPreview = !current.hasRenderedFirstFrame(),
         playbackStarted = current.playbackStarted(),
         onTogglePlayback = current.togglePlayback,

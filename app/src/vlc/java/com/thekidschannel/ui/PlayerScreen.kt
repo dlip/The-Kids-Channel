@@ -427,7 +427,6 @@ private fun rememberChannelPlayer(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                             )
-                            keepScreenOn = isActive
                             alpha = if (isActive) 1f else 0f
                             translationY = offset
                             videoLayout = this
@@ -437,7 +436,6 @@ private fun rememberChannelPlayer(
                     update = {
                         it.alpha = if (isActive) 1f else 0f
                         it.translationY = offset
-                        it.keepScreenOn = isActive
                     },
                 )
             }

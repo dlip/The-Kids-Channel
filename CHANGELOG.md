@@ -6,6 +6,8 @@ Notable changes to The Kids Channel are recorded here.
 
 ### Fixed
 
+- Allow Android's normal screen timeout while playback is paused in both builds.
+
 - Move the current channel's live video with the swipe using native view
   translation, keeping playback visible without a Compose video layer.
 
