@@ -4,10 +4,13 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.10.4] - 2026-10-03
+
 ### Fixed
 
+- Keep a touch placed during a channel transition available for the next swipe
+  once the new channel is selected.
 - Allow Android's normal screen timeout while playback is paused in both builds.
-
 - Move the current channel's live video with the swipe using native view
   translation, keeping playback visible without a Compose video layer.
 

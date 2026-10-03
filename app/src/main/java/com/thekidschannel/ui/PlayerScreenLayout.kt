@@ -271,6 +271,10 @@ internal fun PlayerScreenLayout(
         }
     }
 
+    val currentIsPaused by rememberUpdatedState(isPaused)
+    val currentLoadAdjacentPreview by rememberUpdatedState<suspend (String) -> Unit>(
+        newValue = { uri -> loadAdjacentPreview(uri) },
+    )
     val currentTogglePlayback by rememberUpdatedState(onTogglePlayback)
     val currentSettings by rememberUpdatedState(onSettings)
     // Fresh lambdas keep gesture callbacks tied to the newly selected channel.
@@ -452,7 +456,7 @@ internal fun PlayerScreenLayout(
                         },
                     )
                 }
-                .pointerInput(channelUri, state.channels, isPaused) {
+                .pointerInput(Unit) {
                     try {
                         awaitEachGesture {
                             val down = awaitFirstDown(requireUnconsumed = false)
@@ -462,7 +466,10 @@ internal fun PlayerScreenLayout(
                                 swipeTarget = null
                             }
                             down.consume()
-                            val holdOnChannelTitle = isPaused && currentChannelLabelVisible &&
+                            val startedDuringTransition = channelChangeInProgress
+                            var waitingForTransition = startedDuringTransition
+                            var dragOrigin = down.position
+                            val holdOnChannelTitle = currentIsPaused && currentChannelLabelVisible &&
                                 channelTitleBounds?.contains(down.position) == true &&
                                 !channelChangeInProgress &&
                                 SystemClock.uptimeMillis() >= blockPauseUntil
@@ -494,8 +501,22 @@ internal fun PlayerScreenLayout(
                                     val event = awaitPointerEvent(PointerEventPass.Initial)
                                     val change = event.changes.firstOrNull { it.id == down.id }
                                         ?: break
-                                    totalX = change.position.x - down.position.x
-                                    totalY = change.position.y - down.position.y
+                                    if (channelChangeInProgress) {
+                                        waitingForTransition = true
+                                        dragOrigin = change.position
+                                        if (!change.pressed) {
+                                            released = true
+                                            break
+                                        }
+                                        change.consume()
+                                        continue
+                                    }
+                                    if (waitingForTransition) {
+                                        dragOrigin = change.previousPosition
+                                        waitingForTransition = false
+                                    }
+                                    totalX = change.position.x - dragOrigin.x
+                                    totalY = change.position.y - dragOrigin.y
                                     if (!moved &&
                                         (abs(totalX) > viewConfiguration.touchSlop ||
                                             abs(totalY) > viewConfiguration.touchSlop)
@@ -522,7 +543,7 @@ internal fun PlayerScreenLayout(
                                             if (target?.preview == null) {
                                                 target?.uri?.let { previewChannelUri ->
                                                     coroutineScope.launch {
-                                                        loadAdjacentPreview(previewChannelUri)
+                                                        currentLoadAdjacentPreview(previewChannelUri)
                                                     }
                                                 }
                                             }
@@ -562,6 +583,7 @@ internal fun PlayerScreenLayout(
                                     }
                                 }
                             } else if (released && !moved && !holdCompleted &&
+                                !startedDuringTransition &&
                                 !channelChangeInProgress &&
                                 swipeResetJob?.isActive != true &&
                                 SystemClock.uptimeMillis() >= blockPauseUntil &&
