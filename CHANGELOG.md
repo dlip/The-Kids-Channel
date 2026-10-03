@@ -6,6 +6,12 @@ Notable changes to The Kids Channel are recorded here.
 
 ### Fixed
 
+- Keep neighboring VLC players silent from startup through preparation and
+  channel handoff, while retaining prepared audio buffers for quick switching.
+
+- Use VLC's OpenSL ES audio output to prevent audio stutters caused by AudioTrack
+  flushing buffers and inserting silence when prepared channels resume.
+
 - Release discarded VLC decoders off the UI thread and avoid stopping playback
   when creating a video view, so channel switches and the loading spinner stay
   responsive during decoder cleanup.

@@ -126,6 +126,8 @@ private fun rememberChannelPlayer(
     var activelyPlaying by remember(channelUri) { mutableStateOf(false) }
     var preparationFailed by remember { mutableStateOf(false) }
     var warmupPaused by remember { mutableStateOf(false) }
+    var preparedAudioMuted by remember { mutableStateOf(false) }
+    var warmupStartPositionMs by remember { mutableLongStateOf(0) }
     val frameWatchdog = remember(player) { VideoFrameWatchdog() }
     val frameRecovery = remember(player) { VideoFrameRecovery() }
 
@@ -209,7 +211,14 @@ private fun rememberChannelPlayer(
                     val frameTime = SystemClock.elapsedRealtime()
                     frameWatchdog.onFrame(frameTime)
                     if (isActive) frameRecovery.onFrame(frameTime)
-                    if ((!isActive || !foreground) && !warmupPaused) {
+                    if (!isActive && !preparedAudioMuted &&
+                        confirmedPositionMs >= warmupStartPositionMs + 500L
+                    ) {
+                        preparedAudioMuted = VlcAudioFilter.prepareMutedAudio(player)
+                    }
+                    if ((!isActive || !foreground) && !warmupPaused &&
+                        confirmedPositionMs >= warmupStartPositionMs + 1_500L
+                    ) {
                         warmupPaused = true
                         player.pause()
                     }
@@ -230,6 +239,8 @@ private fun rememberChannelPlayer(
         activelyPlaying = false
         preparationFailed = false
         warmupPaused = false
+        preparedAudioMuted = false
+        warmupStartPositionMs = positionMs.coerceAtLeast(0)
         frameWatchdog.reset(SystemClock.elapsedRealtime(), positionMs)
         val video = playlist.getOrNull(index) ?: return
         val fileDescriptor = runCatching {
@@ -254,7 +265,7 @@ private fun rememberChannelPlayer(
         }
         player.media = media
         media.release()
-        player.volume = if (isActive) 100 else 0
+        VlcAudioFilter.setAudible(player, isActive)
         if (foreground) player.play()
         isPaused = false
     }
@@ -300,7 +311,11 @@ private fun rememberChannelPlayer(
     }
 
     LaunchedEffect(player, active) {
-        player.volume = if (active) 100 else 0
+        preparedAudioMuted = false
+        VlcAudioFilter.setAudible(player, active)
+        if (!active && hasRenderedFirstFrame &&
+            confirmedPositionMs >= warmupStartPositionMs + 500L
+        ) preparedAudioMuted = VlcAudioFilter.prepareMutedAudio(player)
         if (active && foreground) {
             isPaused = false
             warmupPaused = false
@@ -377,8 +392,13 @@ private fun rememberChannelPlayer(
                     MediaPlayer.Event.TimeChanged -> {
                         confirmedPositionMs = event.timeChanged
                         applyPendingStartPosition()
+                        if (!isActive && !preparedAudioMuted &&
+                            confirmedPositionMs >= warmupStartPositionMs + 500L
+                        ) {
+                            preparedAudioMuted = VlcAudioFilter.prepareMutedAudio(player)
+                        }
                         if (!isActive && !warmupPaused && pendingStartPositionMs == 0L &&
-                            confirmedPositionMs >= requestedStartPositionMs + 1_000L
+                            confirmedPositionMs >= warmupStartPositionMs + 1_500L
                         ) {
                             warmupPaused = true
                             player.pause()
@@ -411,10 +431,18 @@ private fun rememberChannelPlayer(
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     foreground = true
+                    if (!isActive) {
+                        preparedAudioMuted = false
+                        warmupStartPositionMs = player.time.coerceAtLeast(0)
+                        VlcAudioFilter.setAudible(player, false)
+                    }
                     attachVideoViews()
                     if (playlist.isNotEmpty() &&
                         ((isActive && resumePlaybackOnStart) || (!isActive && !hasRenderedFirstFrame))
-                    ) player.play()
+                    ) {
+                        warmupPaused = false
+                        player.play()
+                    }
                 }
                 Lifecycle.Event.ON_STOP -> {
                     foreground = false
@@ -445,7 +473,7 @@ private fun rememberChannelPlayer(
         onDispose {
             saveProgress()
             player.setEventListener(null)
-            player.volume = 0
+            VlcAudioFilter.setAudible(player, false)
             player.pause()
             detachVideoViews()
             val descriptor = openFileDescriptor
