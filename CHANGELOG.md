@@ -4,6 +4,15 @@ Notable changes to The Kids Channel are recorded here.
 
 ## [Unreleased]
 
+## [1.10.5] - 2026-10-03
+
+### Fixed
+
+- Stop periodic VLC screenshot capture during playback; refresh previews while
+  paused or leaving a channel instead.
+- Recover stalled VLC video even when playback-position updates arrive less
+  frequently than the recovery checks.
+
 ## [1.10.4] - 2026-10-03
 
 ### Fixed

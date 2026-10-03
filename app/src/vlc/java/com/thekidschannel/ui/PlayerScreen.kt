@@ -125,7 +125,7 @@ private fun rememberChannelPlayer(
     }
 
     suspend fun captureAndSavePreview() {
-        if (!isActive) return
+        if (!isActive || player.isPlaying) return
         val videoUri = playlist.getOrNull(currentIndex)?.uri?.toString() ?: return
         val previewChannelUri = playingChannelUri ?: return
         if (channelUri != previewChannelUri) return
@@ -136,7 +136,7 @@ private fun rememberChannelPlayer(
                 channelUri != previewChannelUri ||
                 playingChannelUri != previewChannelUri ||
                 playlist.getOrNull(currentIndex)?.uri?.toString() != videoUri ||
-                !hasRenderedFirstFrame
+                !hasRenderedFirstFrame || player.isPlaying
             ) {
                 return@withLock
             }
@@ -154,9 +154,6 @@ private fun rememberChannelPlayer(
 
     fun saveProgress() {
         persistProgress()
-        coroutineScope.launch {
-            captureAndSavePreview()
-        }
     }
 
     suspend fun prepareChannelChange() {
@@ -264,12 +261,8 @@ private fun rememberChannelPlayer(
         if (isActive) onPlaybackMessage(null)
     }
 
-    LaunchedEffect(
-        channelUri,
-        playlist.getOrNull(currentIndex)?.uri?.toString(),
-        hasRenderedFirstFrame,
-    ) {
-        if (hasRenderedFirstFrame) captureAndSavePreview()
+    LaunchedEffect(player, active, isPaused, activelyPlaying) {
+        if (active && isPaused && !activelyPlaying) captureAndSavePreview()
     }
 
     LaunchedEffect(player, active) {

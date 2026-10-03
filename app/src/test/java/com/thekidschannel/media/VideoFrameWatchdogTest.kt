@@ -6,6 +6,28 @@ import org.junit.Test
 
 class VideoFrameWatchdogTest {
     @Test
+    fun recoversWithIntermittentPlaybackPositionUpdates() {
+        val watchdog = VideoFrameWatchdog()
+        watchdog.reset(0, 0)
+        assertFalse(watchdog.shouldRecover(250, 0, true))
+        assertFalse(watchdog.shouldRecover(500, 500, true))
+        assertFalse(watchdog.shouldRecover(750, 500, true))
+        assertFalse(watchdog.shouldRecover(1_000, 500, true))
+        assertTrue(watchdog.shouldRecover(1_250, 1_250, true))
+    }
+
+    @Test
+    fun doesNotRecoverWhenPlaybackPositionStopsAdvancing() {
+        val watchdog = VideoFrameWatchdog()
+        watchdog.reset(0, 0)
+        assertFalse(watchdog.shouldRecover(250, 250, true))
+        watchdog.onFrame(750)
+        for (nowMs in 750L..5_000L step 250L) {
+            assertFalse(watchdog.shouldRecover(nowMs, 250, true))
+        }
+    }
+
+    @Test
     fun recoversWhenPlaybackAdvancesBeforeAnyFrameArrives() {
         val watchdog = VideoFrameWatchdog()
         watchdog.reset(0, 20_000)
